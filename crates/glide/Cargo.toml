@@ -1,0 +1,12 @@
+[package]
+name = "glide"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+glide_compiler = { path = "../glide_compiler" }
+glide_lower = { path = "../glide_lower" }
+glide_parser = { path = "../glide_parser" }
+glide_span = { path = "../glide_span" }
+glide_vm = { path = "../glide_vm" }

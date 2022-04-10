@@ -1,0 +1,13 @@
+func identity<T>(t T) T {
+    t
+}
+
+func void() {}
+
+func main() {
+    identity(void())
+    identity(123)
+    print(identity(""))
+    print(identity(identity("zzz")))
+    identity(void)
+}

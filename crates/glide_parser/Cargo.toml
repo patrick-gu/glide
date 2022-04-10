@@ -1,0 +1,9 @@
+[package]
+name = "glide_parser"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+glide_ast = { path = "../glide_ast" }
+glide_span = { path = "../glide_span" }

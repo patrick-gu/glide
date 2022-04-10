@@ -1,4 +1,4 @@
-use std::{ collections::HashMap, iter};
+use std::{collections::HashMap, iter};
 
 use crate::{
     error::{Error, Result},

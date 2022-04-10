@@ -5,7 +5,7 @@ A programming language.
 Currently, this includes:
 
 -   Static typing
--   Generics
+-   Generics, with monomorphization
 -   Type inference on function calls
 
     ```
@@ -18,6 +18,7 @@ Currently, this includes:
 
 -   Basic types, including `Int`s and `String`s
 -   Functions as values
+-   An interpreter
 
 ## Example
 

@@ -18,6 +18,7 @@ Currently, this includes:
 
 -   Basic types, including `Int`s and `String`s
 -   Functions as values
+-   Local variables
 -   An interpreter
 
 ## Example

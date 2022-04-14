@@ -3,6 +3,7 @@ use std::result;
 use glide_ast::{
     def::{Def, Func},
     expr::{Call, Expr},
+    stmt::{Stmt, VarDecl},
     ty::Ty,
     Ast,
 };
@@ -25,7 +26,9 @@ enum TokenKind {
     Quote,
     Apostrophe,
     Comma,
+    Equal,
     KwFunc,
+    KwLet,
     Ident,
     Integer,
 }
@@ -34,6 +37,7 @@ impl TokenKind {
     fn ident_kw(ident: &str) -> Self {
         match ident {
             "func" => Self::KwFunc,
+            "let" => Self::KwLet,
             _ => Self::Ident,
         }
     }
@@ -123,6 +127,7 @@ impl<'a> Lexer<'a> {
             b'"' => TokenKind::Quote,
             b'\'' => TokenKind::Apostrophe,
             b',' => TokenKind::Comma,
+            b'=' => TokenKind::Equal,
         ));
         Ok(())
     }
@@ -171,7 +176,7 @@ pub fn parse(source: &Source) -> Result<'_, Ast<'_>> {
 }
 
 fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
-    if let Some(kw) = lexer.next_as(TokenKind::KwFunc)? {
+    if lexer.next_as(TokenKind::KwFunc)?.is_some() {
         let name = lexer.expect_as(TokenKind::Ident)?;
 
         let generics = match lexer.next_as(TokenKind::LessThan)? {
@@ -186,9 +191,9 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
             None => Vec::new(),
         };
 
-        let l_paren = lexer.expect_as(TokenKind::LParen)?;
+        let _ = lexer.expect_as(TokenKind::LParen)?;
 
-        let (params, r_paren) = list(
+        let (params, _) = list(
             lexer,
             |lexer| {
                 let name = lexer.expect_as(TokenKind::Ident)?;
@@ -198,7 +203,7 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
             TokenKind::RParen,
         )?;
 
-        let (ret, l_brace) = match lexer.next_as(TokenKind::LBrace)? {
+        let (ret, _) = match lexer.next_as(TokenKind::LBrace)? {
             Some(l_brace) => (None, l_brace),
             None => {
                 let ret = ty(lexer)?;
@@ -207,11 +212,11 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
             }
         };
 
-        let mut exprs = Vec::new();
-        let r_brace = loop {
+        let mut stmts = Vec::new();
+        let _ = loop {
             match lexer.next_as(TokenKind::RBrace)? {
                 Some(r_brace) => break r_brace,
-                None => exprs.push(expr(lexer)?),
+                None => stmts.push(stmt(lexer)?),
             }
         };
 
@@ -220,7 +225,7 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
             generics,
             params,
             ret,
-            exprs,
+            stmts,
         })));
     }
     if let Some(token) = lexer.next()? {
@@ -244,13 +249,30 @@ fn ty<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Ty<'a>> {
     })
 }
 
+fn stmt<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Stmt<'a>> {
+    if lexer.next_as(TokenKind::KwLet)?.is_some() {
+        let name = lexer.expect_as(TokenKind::Ident)?;
+        let ty = match lexer.next_as(TokenKind::Equal)? {
+            Some(_) => None,
+            None => {
+                let ty = ty(lexer)?;
+                lexer.expect_as(TokenKind::Equal)?;
+                Some(ty)
+            }
+        };
+        let value = expr(lexer)?;
+        return Ok(Stmt::Var(VarDecl { name, ty, value }));
+    }
+    Ok(Stmt::Expr(expr(lexer)?))
+}
+
 fn expr<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
     call(lexer)
 }
 
 fn call<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
     let mut cur_expr = var_literal(lexer)?;
-    while let Some(l_paren) = lexer.next_as(TokenKind::LParen)? {
+    while lexer.next_as(TokenKind::LParen)?.is_some() {
         let (args, _) = list(lexer, expr, TokenKind::RParen)?;
         cur_expr = Expr::Call(Call {
             receiver: Box::new(cur_expr),

@@ -1,0 +1,11 @@
+func bar(t String, u String) {
+    let s = t
+    let v = u
+    let r = s
+    let p = r
+    print(r)
+}
+
+func main() {
+    bar("should be printed", "should not be printed")
+}

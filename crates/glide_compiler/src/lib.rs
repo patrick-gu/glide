@@ -1,6 +1,10 @@
 use std::fmt::Write;
 
-use glide_ast::Ast;
+use glide_ast::{
+    expr::Expr,
+    stmt::{Stmt, VarDecl},
+    Ast,
+};
 use glide_ir::Ir;
 
 use crate::func::Func;
@@ -62,7 +66,7 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
         generics,
         params,
         ret,
-        exprs,
+        stmts,
     }) in &ast.defs
     {
         let name = name.data().to_owned();
@@ -111,15 +115,15 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
         let func_namespace = func_namespace.detach();
         global_namespace.insert_value(name, func_id)?;
 
-        funcs.push((func_id, func_namespace, locals, ret, exprs));
+        funcs.push((func_id, func_namespace, locals, ret, stmts));
     }
 
-    for (func_id, func_namespace, mut locals, ret, exprs) in funcs {
-        let func_namespace = func_namespace.attach(&global_namespace);
+    for (func_id, func_namespace, mut locals, ret, stmts) in funcs {
+        let mut func_namespace = func_namespace.attach(&global_namespace);
 
         let mut insns = Vec::new();
 
-        match &exprs[..] {
+        match &stmts[..] {
             [] => {
                 if engine.tys.is_void(ret) {
                     insns.push(Insn::PushVoid);
@@ -129,13 +133,24 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
                 }
             }
             [rest @ .., last] => {
-                for expr in rest {
-                    compile_expr(&mut engine, &func_namespace, &mut locals, &mut insns, expr)?;
+                for stmt in rest {
+                    compile_stmt(
+                        &mut engine,
+                        &mut func_namespace,
+                        &mut locals,
+                        &mut insns,
+                        stmt,
+                    )?;
                     insns.push(Insn::Pop);
                     locals.pop().unwrap();
                 }
-                let last_ty =
-                    compile_expr(&mut engine, &func_namespace, &mut locals, &mut insns, last)?;
+                let last_ty = compile_stmt(
+                    &mut engine,
+                    &mut func_namespace,
+                    &mut locals,
+                    &mut insns,
+                    last,
+                )?;
                 match (engine.tys.is_void(ret), engine.tys.is_void(last_ty)) {
                     (true, true) => (),
                     (true, false) => {
@@ -189,28 +204,54 @@ fn resolve_ty(
     engine.instantiate_ty(ty_constr, ty_args)
 }
 
+fn compile_stmt(
+    engine: &mut Engine,
+    namespace: &mut Namespace<'_>,
+    locals: &mut Vec<TyId>,
+    insns: &mut Vec<Insn>,
+    stmt: &Stmt<'_>,
+) -> Result<TyId> {
+    match stmt {
+        Stmt::Var(VarDecl { name, ty, value }) => {
+            let value_ty = compile_expr(engine, namespace, locals, insns, value)?;
+            if let Some(ty) = ty {
+                let ty = resolve_ty(engine, namespace, ty)?;
+                engine.tys.unify(ty, value_ty)?;
+            }
+            let idx = locals.len() - 1;
+            let value_id = engine.values.add(Value::Local(idx));
+            namespace.insert_value(name.data().to_owned(), value_id)?;
+            let void = engine.tys.add(Ty::Void);
+            locals.push(void);
+            insns.push(Insn::PushVoid);
+            Ok(void)
+        }
+        Stmt::Expr(expr) => compile_expr(engine, namespace, locals, insns, expr),
+    }
+}
+
 fn compile_expr(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
     locals: &mut Vec<TyId>,
     insns: &mut Vec<Insn>,
-    expr: &glide_ast::expr::Expr<'_>,
+    expr: &Expr<'_>,
 ) -> Result<TyId> {
     match expr {
-        glide_ast::expr::Expr::Integer(span) => {
+        Expr::Integer(span) => {
             let value: isize = span.data().parse().map_err(|_| Error::IntegerOverflow)?;
             let ty = engine.tys.add(Ty::Int);
             insns.push(Insn::PushInt(value));
             locals.push(ty);
             Ok(ty)
         }
-        glide_ast::expr::Expr::String { data } => {
+        Expr::String { data } => {
             let ty = engine.tys.add(Ty::String);
             insns.push(Insn::PushString(data.clone()));
             locals.push(ty);
             Ok(ty)
         }
-        glide_ast::expr::Expr::Var(name) => {
+        Expr::Var(name) => {
             let value_id = namespace
                 .get_value(name.data())
                 .ok_or(Error::UnresolvedName)?;
@@ -232,7 +273,7 @@ fn compile_expr(
                 }
             }
         }
-        glide_ast::expr::Expr::Call(glide_ast::expr::Call { receiver, args }) => {
+        Expr::Call(glide_ast::expr::Call { receiver, args }) => {
             let call_idx = locals.len();
             let receiver_ty = compile_expr(engine, namespace, locals, insns, receiver)?;
             let mut arg_tys = Vec::new();

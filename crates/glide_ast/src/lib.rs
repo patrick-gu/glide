@@ -1,5 +1,6 @@
 pub mod def;
 pub mod expr;
+pub mod stmt;
 pub mod ty;
 
 use crate::def::Def;

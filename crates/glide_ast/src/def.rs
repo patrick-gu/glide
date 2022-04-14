@@ -1,6 +1,6 @@
 use glide_span::Span;
 
-use crate::{expr::Expr, ty::Ty};
+use crate::{stmt::Stmt, ty::Ty};
 
 #[derive(Debug)]
 pub enum Def<'a> {
@@ -13,5 +13,5 @@ pub struct Func<'a> {
     pub generics: Vec<Span<'a>>,
     pub params: Vec<(Span<'a>, Ty<'a>)>,
     pub ret: Option<Ty<'a>>,
-    pub exprs: Vec<Expr<'a>>,
+    pub stmts: Vec<Stmt<'a>>,
 }

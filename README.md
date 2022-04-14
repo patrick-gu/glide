@@ -39,8 +39,8 @@ Compile the CLI with
 cargo b -p glide_cli --release
 ```
 
-Then run with
+Then run the Hello World example with
 
 ```
-.\target\release\glide_cli ./examples/hello.gl
+./target/release/glide_cli ./examples/hello.gl
 ```

@@ -50,6 +50,7 @@ pub struct Func {
 #[derive(Debug)]
 pub enum FuncData {
     Print,
+    StringConcat,
     Normal(Vec<Insn>),
 }
 

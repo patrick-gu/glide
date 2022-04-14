@@ -3,9 +3,10 @@ func bar(t String, u String) {
     let v = u
     let r = s
     let p = r
-    print(r)
+    let x = stringConcat(stringConcat(r, p), v)
+    print(x)
 }
 
 func main() {
-    bar("should be printed", "should not be printed")
+    bar("aa", "bbb")
 }

@@ -31,6 +31,7 @@ pub fn lower(ir: &Ir) -> Bytecode {
 
         let data = match &func.data {
             glide_ir::FuncData::Print => glide_bytecode::FuncData::Print,
+            glide_ir::FuncData::StringConcat => glide_bytecode::FuncData::StringConcat,
             glide_ir::FuncData::Normal(ir_insns) => {
                 let mut bytecode_insns = Vec::new();
                 for insn in ir_insns {
@@ -79,7 +80,7 @@ pub fn lower(ir: &Ir) -> Bytecode {
                             bytecode_insns.extend(at_u32.to_le_bytes());
                             let size: u32 = ir.tys.size(*ret).try_into().unwrap();
                             // bytecode_insns.extend(size.to_le_bytes());
-                            for (_, size) in locals.drain(locals.len() - at..) {
+                            for (_, size) in locals.drain(at..) {
                                 locals_size -= size;
                             }
                             locals.push((locals_size, size));

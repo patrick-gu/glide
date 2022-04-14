@@ -15,6 +15,7 @@ pub(crate) struct Func {
 pub(crate) enum FuncBody {
     Normal(Vec<Insn>),
     Print,
+    StringConcat,
 }
 
 #[derive(Debug)]

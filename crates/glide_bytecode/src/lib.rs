@@ -19,6 +19,7 @@ pub struct Func {
 pub enum FuncData {
     Custom(Vec<u8>),
     Print,
+    StringConcat,
 }
 
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]

@@ -60,6 +60,20 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
             .insert_value("print".to_owned(), print)
             .unwrap();
     }
+    {
+        let string = engine.tys.add(Ty::String);
+        let signature = engine.tys.add(Ty::Func(vec![string, string], string));
+        let print = engine.values.add(Value::Func(Func {
+            name: "stringConcat".to_owned(),
+            ty_params: Vec::new(),
+            signature,
+            body: FuncBody::StringConcat,
+            cur_mono: false,
+        }));
+        global_namespace
+            .insert_value("stringConcat".to_owned(), print)
+            .unwrap();
+    }
 
     for glide_ast::def::Def::Func(glide_ast::def::Func {
         name,
@@ -344,15 +358,6 @@ fn monomorphize(
 
     let body = match func.body.clone() {
         FuncBody::Normal(insns) => {
-            // let mut locals = Vec::new();
-            // let (params, ret) = match engine.tys.get(signature) {
-            //     Ty::Func(params, ret) => (params, ret),
-            //     _ => unreachable!(),
-            // };
-            // for &param in params {
-            //     locals.push(param);
-            // }
-
             let mut ir_insns = Vec::new();
             for insn in insns {
                 match &insn {
@@ -378,6 +383,7 @@ fn monomorphize(
             glide_ir::FuncData::Normal(ir_insns)
         }
         FuncBody::Print => glide_ir::FuncData::Print,
+        FuncBody::StringConcat => glide_ir::FuncData::StringConcat,
     };
     ir.funcs.get_mut(ir_func_id).data = body;
 

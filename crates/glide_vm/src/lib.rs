@@ -86,21 +86,18 @@ impl Vm {
                         insn::PUSH_SCALAR => {
                             let value = i64::from_le_bytes(insns[ip..][..8].try_into().unwrap());
                             ip += 8;
-                            self.stack.push(StackValue { int: value });
-                            self.stack_tys.push(TyId::SCALAR);
+                            self.push(StackValue { int: value }, TyId::SCALAR);
                         }
                         insn::PUSH_CONSTANT_STRING => {
                             let id = u32::from_le_bytes(insns[ip..][..4].try_into().unwrap());
                             ip += 4;
                             let value = self.strings[id as usize];
-                            self.stack.push(StackValue { string: value });
-                            self.stack_tys.push(TyId::STRING);
+                            self.push(StackValue { string: value }, TyId::STRING);
                         }
                         insn::PUSH_FUNC => {
                             let value = usize::from_le_bytes(insns[ip..][..8].try_into().unwrap());
                             ip += 8;
-                            self.stack.push(StackValue { uint: value });
-                            self.stack_tys.push(TyId::FUNC);
+                            self.push(StackValue { uint: value }, TyId::FUNC);
                         }
                         insn::CALL => {
                             let at = u32::from_le_bytes(insns[ip..][..4].try_into().unwrap());
@@ -147,7 +144,39 @@ impl Vm {
                 println!();
                 self.pop();
             }
+            FuncData::StringConcat => {
+                let second = self.pop();
+                let first = self.pop();
+
+                let second = unsafe { second.string };
+                let second_len = unsafe { StringHeader::len(second) };
+                let second_ptr = unsafe { StringHeader::buffer_ptr(second) };
+
+                let first = unsafe { first.string };
+                let first_len = unsafe { StringHeader::len(first) };
+                let first_ptr = unsafe { StringHeader::buffer_ptr(first) };
+
+                let total_len = first_len.checked_add(second_len).unwrap();
+                assert!(total_len <= isize::MAX as usize);
+
+                let (alloc, buf_ptr) = self.alloc_string(total_len);
+
+                unsafe {
+                    buf_ptr.copy_from(first_ptr, first_len);
+                    buf_ptr.add(first_len).copy_from(second_ptr, second_len);
+                }
+
+                let value = StackValue { string: alloc };
+
+                self.pop();
+                self.push(value, TyId::STRING);
+            }
         }
+    }
+
+    fn push(&mut self, value: StackValue, ty: TyId) {
+        self.stack.push(value);
+        self.stack_tys.push(ty);
     }
 
     fn pop(&mut self) -> StackValue {

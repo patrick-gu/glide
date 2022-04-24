@@ -1,4 +1,4 @@
-use std::fmt::Write;
+use std::{collections::HashMap, fmt::Write};
 
 use glide_ast::{
     expr::Expr,
@@ -7,7 +7,7 @@ use glide_ast::{
 };
 use glide_ir::Ir;
 
-use crate::func::Func;
+use crate::func::{CompiledFunc, Func};
 
 use self::{
     engine::Engine,
@@ -196,8 +196,9 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
     let instantiated_main = engine.instantiate_func(main_id);
 
     let mut ir = Ir::new();
+    let mut compiled_funcs = HashMap::new();
 
-    let main_id = monomorphize(&mut engine, &mut ir, instantiated_main)?;
+    let main_id = monomorphize(&mut engine, &mut ir, &mut compiled_funcs, instantiated_main)?;
     ir.main_func = main_id;
 
     Ok(ir)
@@ -311,86 +312,95 @@ fn compile_expr(
 fn monomorphize(
     engine: &mut Engine,
     ir: &mut Ir,
+    compiled_funcs: &mut HashMap<CompiledFunc, glide_ir::FuncId>,
     instantiated_func_id: InstantiatedFuncId,
 ) -> Result<glide_ir::FuncId> {
     let instantiated_func = engine.instantiated_funcs.get(instantiated_func_id);
-    if let Some(idx) = instantiated_func.comp_idx {
-        return Ok(idx);
-    }
-
+    let func = instantiated_func.func;
     let signature = instantiated_func.signature;
-    let func_id = instantiated_func.func;
 
-    let mut name = engine
-        .values
-        .get(instantiated_func.func)
-        .as_func()
-        .unwrap()
-        .name
-        .clone();
-    if let Some((last, rest)) = instantiated_func.ty_args.split_last() {
-        write!(name, "<").unwrap();
-        for &ty_arg in rest {
-            let ty_arg = compile_ty(engine, &mut ir.tys, ty_arg)?;
-            write!(name, "{}, ", ir.tys.display(ty_arg)).unwrap();
+    let compiled = {
+        let mut ty_args = Vec::new();
+        for &ty_arg in &instantiated_func.ty_args {
+            ty_args.push(compile_ty(engine, &mut ir.tys, ty_arg)?);
         }
-        let ty_arg = compile_ty(engine, &mut ir.tys, *last)?;
-        write!(name, "{}>", ir.tys.display(ty_arg)).unwrap();
-    }
-
-    let ir_signature = compile_ty(engine, &mut ir.tys, signature)?;
-    let ir_func_id = ir.funcs.add(glide_ir::Func {
-        name,
-        signature: ir_signature,
-        data: glide_ir::FuncData::Normal(Vec::new()),
-    });
-
-    engine
-        .instantiated_funcs
-        .get_mut(instantiated_func_id)
-        .comp_idx = Some(ir_func_id);
-
-    let func = engine.values.get_mut(func_id).as_mut_func().unwrap();
-    if func.cur_mono {
-        return Err(Error::TyRecursion);
-    }
-    func.cur_mono = true;
-
-    let body = match func.body.clone() {
-        FuncBody::Normal(insns) => {
-            let mut ir_insns = Vec::new();
-            for insn in insns {
-                match &insn {
-                    Insn::PushVoid => ir_insns.push(glide_ir::Insn::PushVoid),
-                    Insn::PushInt(value) => ir_insns.push(glide_ir::Insn::PushInt(*value)),
-                    Insn::PushString(string) => {
-                        ir_insns.push(glide_ir::Insn::PushString(string.clone()))
-                    }
-                    Insn::PushLocal(idx) => ir_insns.push(glide_ir::Insn::PushLocal(*idx)),
-                    Insn::PushFunc(func) => {
-                        let id = monomorphize(engine, ir, *func)?;
-                        ir_insns.push(glide_ir::Insn::PushFunc(id));
-                    }
-                    Insn::Pop => ir_insns.push(glide_ir::Insn::Pop),
-                    Insn::Call { at, ret } => {
-                        let ret = compile_ty(engine, &mut ir.tys, *ret)?;
-                        ir_insns.push(glide_ir::Insn::Call { at: *at, ret })
-                    }
-                    Insn::Ret => ir_insns.push(glide_ir::Insn::Ret),
-                }
-            }
-
-            glide_ir::FuncData::Normal(ir_insns)
-        }
-        FuncBody::Print => glide_ir::FuncData::Print,
-        FuncBody::StringConcat => glide_ir::FuncData::StringConcat,
+        CompiledFunc { func, ty_args }
     };
-    ir.funcs.get_mut(ir_func_id).data = body;
+    if let Some(id) = compiled_funcs.get(&compiled) {
+        return Ok(*id);
+    }
 
-    let func = engine.values.get_mut(func_id).as_mut_func().unwrap();
-    func.cur_mono = false;
+    let id = {
+        let mut name = engine
+            .values
+            .get(compiled.func)
+            .as_func()
+            .unwrap()
+            .name
+            .clone();
+        if let Some((last, rest)) = compiled.ty_args.split_last() {
+            write!(name, "<").unwrap();
+            for &ty_arg in rest {
+                write!(name, "{}, ", ir.tys.display(ty_arg)).unwrap();
+            }
+            write!(name, "{}>", ir.tys.display(*last)).unwrap();
+        }
 
-    Ok(ir_func_id)
+        let signature = compile_ty(engine, &mut ir.tys, signature)?;
+        let id = ir.funcs.add(glide_ir::Func {
+            name,
+            signature,
+            data: glide_ir::FuncData::Normal(Vec::new()),
+        });
+        compiled_funcs.insert(compiled, id);
+        id
+    };
+
+    {
+        let func = engine.values.get_mut(func).as_mut_func().unwrap();
+        if func.cur_mono {
+            return Err(Error::TyRecursion);
+        }
+        func.cur_mono = true;
+
+        let body = match func.body.clone() {
+            FuncBody::Normal(insns) => {
+                let mut ir_insns = Vec::new();
+                for insn in insns {
+                    match &insn {
+                        Insn::PushVoid => ir_insns.push(glide_ir::Insn::PushVoid),
+                        Insn::PushInt(value) => ir_insns.push(glide_ir::Insn::PushInt(*value)),
+                        Insn::PushString(string) => {
+                            ir_insns.push(glide_ir::Insn::PushString(string.clone()))
+                        }
+                        Insn::PushLocal(idx) => ir_insns.push(glide_ir::Insn::PushLocal(*idx)),
+                        Insn::PushFunc(func) => {
+                            let id = monomorphize(engine, ir, compiled_funcs, *func)?;
+                            ir_insns.push(glide_ir::Insn::PushFunc(id));
+                        }
+                        Insn::Pop => ir_insns.push(glide_ir::Insn::Pop),
+                        Insn::Call { at, ret } => {
+                            let ret = compile_ty(engine, &mut ir.tys, *ret)?;
+                            ir_insns.push(glide_ir::Insn::Call { at: *at, ret })
+                        }
+                        Insn::Ret => ir_insns.push(glide_ir::Insn::Ret),
+                    }
+                }
+
+                glide_ir::FuncData::Normal(ir_insns)
+            }
+            FuncBody::Print => glide_ir::FuncData::Print,
+            FuncBody::StringConcat => glide_ir::FuncData::StringConcat,
+        };
+        ir.funcs.get_mut(id).data = body;
+    }
+
+    {
+        let func = engine.values.get_mut(func).as_mut_func().unwrap();
+        func.cur_mono = false;
+    }
+
+    Ok(id)
 }
 
 fn compile_ty(engine: &Engine, tys: &mut glide_ir::Tys, ty: TyId) -> Result<glide_ir::TyId> {

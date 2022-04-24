@@ -24,7 +24,7 @@ impl Value {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 pub(crate) struct ValueId(usize);
 
 pub(crate) struct Values(Vec<Value>);

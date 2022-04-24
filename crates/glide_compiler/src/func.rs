@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Write};
+
+use glide_ir::{FuncId, Ir};
 
 use crate::{engine::Engine, ty::TyId, value::ValueId};
 
@@ -23,7 +25,6 @@ pub(crate) struct InstantiatedFunc {
     pub(crate) func: ValueId,
     pub(crate) ty_args: Vec<TyId>,
     pub(crate) signature: TyId,
-    pub(crate) comp_idx: Option<glide_ir::FuncId>,
 }
 
 impl InstantiatedFunc {
@@ -73,4 +74,10 @@ pub(crate) enum Insn {
     Pop,
     Call { at: usize, ret: TyId },
     Ret,
+}
+
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub(crate) struct CompiledFunc {
+    pub(crate) func: ValueId,
+    pub(crate) ty_args: Vec<glide_ir::TyId>,
 }

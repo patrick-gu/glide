@@ -10,4 +10,5 @@ func main() {
     print(identity(""))
     print(identity(identity("zzz")))
     identity(void)
+    identity(main)
 }

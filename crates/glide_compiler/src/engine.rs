@@ -62,7 +62,6 @@ impl Engine {
             func: func_id,
             ty_args,
             signature,
-            comp_idx: None,
         })
     }
 }

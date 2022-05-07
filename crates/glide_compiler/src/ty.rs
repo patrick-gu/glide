@@ -1,4 +1,4 @@
-use std::{collections::HashMap, mem};
+use std::{cmp::Ordering, collections::HashMap};
 
 use crate::error::{Error, Result};
 
@@ -35,13 +35,18 @@ impl Tys {
         &self.0[id.0]
     }
 
-    fn get_mut_2(&mut self, TyId(mut a): TyId, TyId(mut b): TyId) -> (&mut Ty, &mut Ty) {
-        assert_ne!(a, b);
-        if a > b {
-            mem::swap(&mut a, &mut b);
+    fn get_mut_2(&mut self, TyId(a): TyId, TyId(b): TyId) -> (&mut Ty, &mut Ty) {
+        match a.cmp(&b) {
+            Ordering::Less => {
+                let (h, t) = self.0.split_at_mut(b);
+                (&mut h[a], &mut t[0])
+            }
+            Ordering::Equal => panic!(),
+            Ordering::Greater => {
+                let (h, t) = self.0.split_at_mut(a);
+                (&mut t[0], &mut h[b])
+            }
         }
-        let (h, t) = self.0.split_at_mut(b);
-        (&mut h[a], &mut t[0])
     }
 
     pub(crate) fn unify(&mut self, l: TyId, r: TyId) -> Result<()> {

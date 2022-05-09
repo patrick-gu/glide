@@ -2,7 +2,7 @@ use std::result;
 
 use glide_ast::{
     def::{Def, Func},
-    expr::{Call, Expr},
+    expr::{Block, Call, Expr, If},
     stmt::{Stmt, VarDecl},
     ty::Ty,
     Ast,
@@ -15,8 +15,30 @@ pub struct Token<'a> {
     kind: TokenKind,
 }
 
-#[derive(Copy, Clone, Eq, PartialEq, Debug)]
-enum TokenKind {
+macro_rules! token_kinds {
+    (
+        $($simple:ident,)+
+        -
+        $($keyword:ident => $text:literal,)+
+    ) => {
+        #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+        enum TokenKind {
+            $($simple,)+
+            $($keyword,)+
+        }
+
+        impl TokenKind {
+            fn ident_kw(ident: &str) -> Self {
+                match ident {
+                    $($text => Self::$keyword,)+
+                    _ => Self::Ident,
+                }
+            }
+        }
+    };
+}
+
+token_kinds!(
     LParen,
     RParen,
     LBrace,
@@ -27,21 +49,20 @@ enum TokenKind {
     Apostrophe,
     Comma,
     Equal,
-    KwFunc,
-    KwLet,
+
     Ident,
     Integer,
-}
 
-impl TokenKind {
-    fn ident_kw(ident: &str) -> Self {
-        match ident {
-            "func" => Self::KwFunc,
-            "let" => Self::KwLet,
-            _ => Self::Ident,
-        }
-    }
-}
+    -
+
+    KwElse => "else",
+    KwFalse => "false",
+    KwFor => "for",
+    KwFunc => "func",
+    KwIf => "if",
+    KwLet => "let",
+    KwTrue => "true",
+);
 
 struct Lexer<'a> {
     next: Option<Token<'a>>,
@@ -212,20 +233,14 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
             }
         };
 
-        let mut stmts = Vec::new();
-        let _ = loop {
-            match lexer.next_as(TokenKind::RBrace)? {
-                Some(r_brace) => break r_brace,
-                None => stmts.push(stmt(lexer)?),
-            }
-        };
+        let block = block_after_l_paren(lexer)?;
 
         return Ok(Some(Def::Func(Func {
             name,
             generics,
             params,
             ret,
-            stmts,
+            block,
         })));
     }
     if let Some(token) = lexer.next()? {
@@ -267,6 +282,23 @@ fn stmt<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Stmt<'a>> {
 }
 
 fn expr<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
+    if_else(lexer)
+}
+
+fn if_else<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
+    if lexer.next_as(TokenKind::KwIf)?.is_some() {
+        let mut branches = vec![(call(lexer)?, block(lexer)?)];
+        let els = loop {
+            if lexer.next_as(TokenKind::KwElse)?.is_none() {
+                break None;
+            }
+            if lexer.next_as(TokenKind::KwIf)?.is_none() {
+                break Some(block(lexer)?);
+            }
+            branches.push((call(lexer)?, block(lexer)?));
+        };
+        return Ok(Expr::If(If { branches, els }));
+    }
     call(lexer)
 }
 
@@ -376,4 +408,20 @@ fn list1<'a, T>(
         }
     };
     Ok((elems, span))
+}
+
+fn block<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Block<'a>> {
+    let _ = lexer.expect_as(TokenKind::LBrace)?;
+    block_after_l_paren(lexer)
+}
+
+fn block_after_l_paren<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Block<'a>> {
+    let mut stmts = Vec::new();
+    let _ = loop {
+        match lexer.next_as(TokenKind::RBrace)? {
+            Some(r_brace) => break r_brace,
+            None => stmts.push(stmt(lexer)?),
+        }
+    };
+    Ok(Block { stmts })
 }

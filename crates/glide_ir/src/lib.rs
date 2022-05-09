@@ -1,21 +1,20 @@
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
 #[derive(Debug)]
 pub struct Ir {
     pub funcs: Funcs,
     pub main_func: FuncId,
-    pub tys: Tys,
 }
 
-impl Ir {
-    pub fn new() -> Self {
-        Self {
-            funcs: Funcs::new(),
-            main_func: FuncId(0),
-            tys: Tys::new(),
-        }
-    }
+#[derive(Debug)]
+pub struct Func {
+    pub name: String,
+    pub signature: Ty,
+    pub body: FuncBody,
 }
+
+#[derive(Copy, Clone, Debug)]
+pub struct FuncId(usize);
 
 #[derive(Debug)]
 pub struct Funcs(Vec<Func>);
@@ -31,6 +30,10 @@ impl Funcs {
         id
     }
 
+    pub fn get(&self, id: FuncId) -> &Func {
+        &self.0[id.0]
+    }
+
     pub fn get_mut(&mut self, id: FuncId) -> &mut Func {
         &mut self.0[id.0]
     }
@@ -40,123 +43,70 @@ impl Funcs {
     }
 }
 
-#[derive(Debug)]
-pub struct Func {
-    pub name: String,
-    pub signature: TyId,
-    pub data: FuncData,
+impl Default for Funcs {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug)]
-pub enum FuncData {
+pub enum FuncBody {
+    Normal(Vec<Value>),
     Print,
-    StringConcat,
-    Normal(Vec<Insn>),
 }
 
-#[derive(Debug)]
-pub enum Insn {
-    PushVoid,
-    PushInt(isize),
-    PushString(Vec<u8>),
-    PushLocal(usize),
-    PushFunc(FuncId),
-    Pop,
-    Call { at: usize, ret: TyId },
-    Ret,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub struct FuncId(pub usize);
-
-#[derive(Debug)]
-pub struct Tys {
-    tys: Vec<Ty>,
-    lookup: HashMap<Ty, TyId>,
-}
-
-impl Tys {
-    pub fn new() -> Self {
-        let mut tys = Self {
-            tys: Vec::new(),
-            lookup: HashMap::new(),
-        };
-        tys.add(Ty::Void);
-        tys.add(Ty::Int);
-        tys.add(Ty::String);
-        tys
-    }
-
-    pub fn add(&mut self, ty: Ty) -> TyId {
-        if let Some(id) = self.lookup.get(&ty) {
-            *id
-        } else {
-            let id = TyId(self.tys.len());
-            self.tys.push(ty.clone());
-            self.lookup.insert(ty, id);
-            id
-        }
-    }
-
-    pub fn get(&self, id: TyId) -> &Ty {
-        &self.tys[id.0]
-    }
-
-    pub fn inner(&self) -> &[Ty] {
-        &self.tys
-    }
-
-    pub fn display(&self, ty: TyId) -> impl fmt::Display + '_ {
-        TyDisplay { tys: self, ty }
-    }
-
-    pub fn size(&self, ty: TyId) -> usize {
-        match self.get(ty) {
-            Ty::Void => 0,
-            Ty::Int => 1,
-            Ty::String => 1,
-            Ty::Slice(_) => 1,
-            Ty::Func(_, _) => 1,
-        }
-    }
-}
-
-#[derive(Eq, PartialEq, Hash, Clone, Debug)]
+/// A type.
+#[derive(Eq, PartialEq, Hash, Clone)]
 pub enum Ty {
     Void,
     Int,
     String,
-    Slice(TyId),
-    Func(Vec<TyId>, TyId),
+    Slice(Box<Ty>),
+    Func(Vec<Ty>, Box<Ty>),
 }
 
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub struct TyId(usize);
-
-struct TyDisplay<'a> {
-    tys: &'a Tys,
-    ty: TyId,
+impl Ty {
+    /// Returns `true` if this type is empty.
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Void)
+    }
 }
 
-impl fmt::Display for TyDisplay<'_> {
+impl fmt::Display for Ty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.tys.get(self.ty) {
-            Ty::Void => write!(f, "Void"),
-            Ty::Int => write!(f, "Int"),
-            Ty::String => write!(f, "String"),
-            Ty::Slice(elem) => {
-                write!(f, "Slice<{}>", self.tys.display(*elem))
-            }
-            Ty::Func(params, ret) => {
+        match self {
+            Self::Void => write!(f, "Void"),
+            Self::Int => write!(f, "Int"),
+            Self::String => write!(f, "String"),
+            Self::Slice(elem) => write!(f, "Slice<{}>", elem),
+            Self::Func(params, ret) => {
                 write!(f, "func (")?;
                 if let Some((last, rest)) = params.split_last() {
-                    for &param in rest {
-                        write!(f, "{}, ", self.tys.display(param))?;
+                    for param in rest {
+                        write!(f, "{}, ", param)?;
                     }
-                    write!(f, "{}", self.tys.display(*last))?;
+                    write!(f, "{}", last)?;
                 }
-                write!(f, ") {}", self.tys.display(*ret))
+                write!(f, ") {}", ret)
             }
         }
     }
+}
+
+impl fmt::Debug for Ty {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+
+#[derive(Debug)]
+pub enum Value {
+    Void,
+    ConstantInt(i64),
+    ConstantString(Vec<u8>),
+    Local(usize),
+    Param(usize),
+    Func(FuncId),
+    Call(Box<Value>, Vec<Value>),
+    Ret(Box<Value>),
 }

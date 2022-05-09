@@ -19,7 +19,7 @@ Currently, this includes:
 -   Basic types, including `Int`s and `String`s
 -   Functions as values
 -   Local variables
--   An interpreter
+-   Native code generation using [LLVM](https://llvm.org)
 
 ## Example
 
@@ -32,6 +32,8 @@ func main() {
 ```
 
 ## Usage
+
+First, install LLVM.
 
 Compile the CLI with
 

@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 glide_ast = { path = "../glide_ast" }
+glide_codegen_llvm = { path = "../glide_codegen_llvm" }
 glide_ir = { path = "../glide_ir" }
 
 [dev-dependencies]

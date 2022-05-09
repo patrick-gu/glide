@@ -2,17 +2,15 @@ use std::{collections::HashMap, iter};
 
 use crate::{
     error::{Error, Result},
-    func::{InstantiatedFunc, InstantiatedFuncId, InstantiatedFuncs},
+    func::{FuncId, FuncUsage, Funcs},
     ty::{Ty, TyId, Tys},
     ty_constr::{TyConstr, TyConstrId, TyConstrs},
-    value::{Value, ValueId, Values},
 };
 
 pub(crate) struct Engine {
     pub(crate) tys: Tys,
     pub(crate) ty_constrs: TyConstrs,
-    pub(crate) values: Values,
-    pub(crate) instantiated_funcs: InstantiatedFuncs,
+    pub(crate) funcs: Funcs,
 }
 
 impl Engine {
@@ -20,8 +18,7 @@ impl Engine {
         Self {
             tys: Tys::new(),
             ty_constrs: TyConstrs::new(),
-            values: Values::new(),
-            instantiated_funcs: InstantiatedFuncs::new(),
+            funcs: Funcs::new(),
         }
     }
 
@@ -40,11 +37,8 @@ impl Engine {
         }
     }
 
-    pub(crate) fn instantiate_func(&mut self, func_id: ValueId) -> InstantiatedFuncId {
-        let func = match self.values.get(func_id) {
-            Value::Func(func) => func,
-            _ => panic!(),
-        };
+    pub(crate) fn use_func(&mut self, func_id: FuncId) -> FuncUsage {
+        let func = self.funcs.get(func_id);
 
         let ty_args: Vec<TyId> = iter::repeat_with(|| self.tys.add(Ty::Infer))
             .take(func.ty_params.len())
@@ -58,10 +52,10 @@ impl Engine {
             .collect();
         let signature = self.tys.clone_substitute(func.signature, &map);
 
-        self.instantiated_funcs.add(InstantiatedFunc {
+        FuncUsage {
             func: func_id,
             ty_args,
             signature,
-        })
+        }
     }
 }

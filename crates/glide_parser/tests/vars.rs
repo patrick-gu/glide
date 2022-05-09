@@ -1,6 +1,6 @@
 use glide_ast::{
     def::{Def, Func},
-    expr::{Call, Expr},
+    expr::{Block, Call, Expr},
     stmt::{Stmt, VarDecl},
     ty::Ty,
 };
@@ -26,7 +26,7 @@ func main() {
         generics,
         params,
         ret,
-        stmts,
+        block: Block { stmts },
     }) = &ast.defs[0];
     assert_eq!(name.data(), "main");
     assert!(generics.is_empty());

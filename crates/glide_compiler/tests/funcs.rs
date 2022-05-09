@@ -21,10 +21,12 @@ fn explicit_void_return() {
         r#"
 func foo() Void {
 }
+
+func main() {}
 "#,
     );
     let ast = parse(&source).unwrap();
-    let bytecode = compile(&ast).unwrap();
+    let ir = compile(&ast).unwrap();
 }
 
 #[test]
@@ -36,10 +38,12 @@ func foo() {
     321
     12321
 }
+
+func main() {}
 "#,
     );
     let ast = parse(&source).unwrap();
-    let bytecode = compile(&ast).unwrap();
+    let ir = compile(&ast).unwrap();
 }
 
 #[test]
@@ -51,10 +55,12 @@ func foo() Int {
     321
     12321
 }
+
+func main() {}
 "#,
     );
     let ast = parse(&source).unwrap();
-    let bytecode = compile(&ast).unwrap();
+    let ir = compile(&ast).unwrap();
 }
 
 #[test]
@@ -69,7 +75,7 @@ func main() {}
 "#,
     );
     let ast = parse(&source).unwrap();
-    let bytecode = compile(&ast).unwrap();
+    let ir = compile(&ast).unwrap();
 }
 
 #[test]
@@ -89,7 +95,7 @@ func main() {
 "#,
     );
     let ast = parse(&source).unwrap();
-    let bytecode = compile(&ast).unwrap();
+    let ir = compile(&ast).unwrap();
 }
 
 #[test]

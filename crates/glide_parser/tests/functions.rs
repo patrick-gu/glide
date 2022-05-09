@@ -1,6 +1,6 @@
 use glide_ast::{
     def::{Def, Func},
-    expr::{Call, Expr},
+    expr::{Block, Call, Expr},
     stmt::Stmt,
 };
 use glide_parser::parse;
@@ -25,7 +25,7 @@ func bar<T>(baz Bar<Bar<Bar<Bar<T, Slice<T>>, T>, T,>, Bar<T, T>>) {}
             generics,
             params,
             ret,
-            stmts,
+            block: Block { stmts },
         }) => {
             assert_eq!(name.data(), "foo");
             assert_eq!(generics.len(), 3);
@@ -94,7 +94,7 @@ func bar<T>(baz Bar<Bar<Bar<Bar<T, Slice<T>>, T>, T,>, Bar<T, T>>) {}
             generics,
             params,
             ret,
-            stmts,
+            block: Block { stmts },
         }) => {
             assert_eq!(name.data(), "bar");
             assert_eq!(generics.len(), 1);

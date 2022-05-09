@@ -1,8 +1,6 @@
-use std::{collections::HashMap, fmt::Write};
+use std::collections::HashMap;
 
-use glide_ir::{FuncId, Ir};
-
-use crate::{engine::Engine, ty::TyId, value::ValueId};
+use crate::{ty::TyId, value::Value};
 
 #[derive(Debug)]
 pub(crate) struct Func {
@@ -15,69 +13,66 @@ pub(crate) struct Func {
 
 #[derive(Clone, Debug)]
 pub(crate) enum FuncBody {
-    Normal(Vec<Insn>),
+    Normal(Vec<Value>),
     Print,
-    StringConcat,
 }
+
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
+pub(crate) struct FuncId(usize);
 
 #[derive(Debug)]
-pub(crate) struct InstantiatedFunc {
-    pub(crate) func: ValueId,
-    pub(crate) ty_args: Vec<TyId>,
-    pub(crate) signature: TyId,
-}
+pub(crate) struct Funcs(Vec<Func>);
 
-impl InstantiatedFunc {
-    pub(crate) fn map(&self, engine: &Engine) -> HashMap<TyId, TyId> {
-        let ty_params = &engine.values.get(self.func).as_func().unwrap().ty_params;
-        assert_eq!(self.ty_args.len(), ty_params.len());
-        ty_params
-            .iter()
-            .copied()
-            .zip(self.ty_args.iter().copied())
-            .collect()
-    }
-}
-
-pub(crate) struct InstantiatedFuncs(Vec<InstantiatedFunc>);
-
-impl InstantiatedFuncs {
+impl Funcs {
     pub(crate) fn new() -> Self {
         Self(Vec::new())
     }
 
-    pub(crate) fn add(&mut self, func: InstantiatedFunc) -> InstantiatedFuncId {
-        let id = InstantiatedFuncId(self.0.len());
+    pub(crate) fn add(&mut self, func: Func) -> FuncId {
+        let id = FuncId(self.0.len());
         self.0.push(func);
         id
     }
 
-    pub(crate) fn get(&self, id: InstantiatedFuncId) -> &InstantiatedFunc {
+    pub(crate) fn get(&self, id: FuncId) -> &Func {
         &self.0[id.0]
     }
 
-    pub(crate) fn get_mut(&mut self, id: InstantiatedFuncId) -> &mut InstantiatedFunc {
+    pub(crate) fn get_mut(&mut self, id: FuncId) -> &mut Func {
         &mut self.0[id.0]
     }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub(crate) struct InstantiatedFuncId(usize);
-
 #[derive(Clone, Debug)]
-pub(crate) enum Insn {
-    PushVoid,
-    PushInt(isize),
-    PushString(Vec<u8>),
-    PushLocal(usize),
-    PushFunc(InstantiatedFuncId),
-    Pop,
-    Call { at: usize, ret: TyId },
-    Ret,
+pub(crate) struct FuncUsage {
+    pub(crate) func: FuncId,
+    pub(crate) ty_args: Vec<TyId>,
+    pub(crate) signature: TyId,
 }
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
-pub(crate) struct CompiledFunc {
-    pub(crate) func: ValueId,
-    pub(crate) ty_args: Vec<glide_ir::TyId>,
+pub(crate) struct FuncCompiled {
+    pub(crate) func: FuncId,
+    pub(crate) ty_args: Vec<glide_ir::Ty>,
+}
+
+pub(crate) struct FuncsCompiled {
+    lookup: HashMap<FuncCompiled, glide_ir::FuncId>,
+}
+
+impl FuncsCompiled {
+    pub(crate) fn new() -> Self {
+        Self {
+            lookup: HashMap::new(),
+        }
+    }
+
+    pub(crate) fn get(&self, key: &FuncCompiled) -> Option<glide_ir::FuncId> {
+        self.lookup.get(key).copied()
+    }
+
+    pub(crate) fn insert(&mut self, key: FuncCompiled, id: glide_ir::FuncId) {
+        let previous = self.lookup.insert(key, id);
+        assert!(previous.is_none());
+    }
 }

@@ -1,9 +1,9 @@
 [package]
-name = "glide_lower"
+name = "glide_codegen"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-glide_bytecode = { path = "../glide_bytecode" }
+glide_codegen_llvm = { path = "../glide_codegen_llvm" }
 glide_ir = { path = "../glide_ir" }

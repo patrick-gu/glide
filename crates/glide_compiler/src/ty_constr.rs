@@ -1,5 +1,6 @@
 use crate::ty::TyId;
 
+/// A type constructor.
 #[derive(Debug)]
 pub(crate) enum TyConstr {
     Void,

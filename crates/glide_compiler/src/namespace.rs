@@ -3,13 +3,13 @@ use std::collections::HashMap;
 use crate::{
     error::{Error, Result},
     ty_constr::TyConstrId,
-    value::ValueId,
+    value::ValueRef,
 };
 
 pub(crate) struct Namespace<'a> {
     previous: Option<&'a Namespace<'a>>,
     ty_constrs: HashMap<String, TyConstrId>,
-    values: HashMap<String, ValueId>,
+    values: HashMap<String, ValueRef>,
 }
 
 impl<'a> Namespace<'a> {
@@ -48,22 +48,22 @@ impl<'a> Namespace<'a> {
         self.previous.and_then(|p| p.get_ty_constr(name))
     }
 
-    pub(crate) fn insert_value(&mut self, name: String, id: ValueId) -> Result<()> {
-        if self.get_ty_constr(&name).is_some() {
+    pub(crate) fn insert_value(&mut self, name: String, value: ValueRef) -> Result<()> {
+        if self.get_value(&name).is_some() {
             return Err(Error::Shadow);
         }
-        self.values.insert(name, id);
+        self.values.insert(name, value);
         Ok(())
     }
 
-    pub(crate) fn get_value(&self, name: &str) -> Option<ValueId> {
+    pub(crate) fn get_value(&self, name: &str) -> Option<ValueRef> {
         self.values
             .get(name)
             .copied()
             .or_else(|| self.get_value_deep(name))
     }
 
-    fn get_value_deep(&self, name: &str) -> Option<ValueId> {
+    fn get_value_deep(&self, name: &str) -> Option<ValueRef> {
         self.previous.and_then(|p| p.get_value(name))
     }
 

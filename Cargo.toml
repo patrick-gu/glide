@@ -2,12 +2,11 @@
 members = [
     "./crates/glide",
     "./crates/glide_ast",
-    "./crates/glide_bytecode",
     "./crates/glide_cli",
+    "./crates/glide_codegen",
+    "./crates/glide_codegen_llvm",
     "./crates/glide_compiler",
     "./crates/glide_ir",
-    "./crates/glide_lower",
     "./crates/glide_parser",
     "./crates/glide_span",
-    "./crates/glide_vm",
 ]

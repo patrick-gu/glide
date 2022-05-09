@@ -16,8 +16,6 @@ pub fn run_named(name: String, data: String) {
 fn run_source(source: Source) {
     let ast = glide_parser::parse(&source).unwrap();
     let ir = glide_compiler::compile(&ast).unwrap();
-    // dbg!(&ir);
-    let bytecode = glide_lower::lower(&ir);
-    // dbg!(&bytecode);
-    glide_vm::interpret(bytecode);
+    dbg!(&ir);
+    glide_codegen::codegen(&ir);
 }

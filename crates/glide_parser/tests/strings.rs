@@ -22,8 +22,8 @@ func main() {
     assert!(main.generics.is_empty());
     assert!(main.params.is_empty());
     assert!(main.ret.is_none());
-    assert_eq!(main.stmts.len(), 1);
-    let print = &main.stmts[0];
+    assert_eq!(main.block.stmts.len(), 1);
+    let print = &main.block.stmts[0];
     match print {
         Stmt::Expr(Expr::Call(Call { receiver, args })) => {
             match &**receiver {
@@ -57,8 +57,8 @@ func main() {
     assert!(main.generics.is_empty());
     assert!(main.params.is_empty());
     assert!(main.ret.is_none());
-    assert_eq!(main.stmts.len(), 1);
-    match &main.stmts[0] {
+    assert_eq!(main.block.stmts.len(), 1);
+    match &main.block.stmts[0] {
         Stmt::Expr(Expr::String { data }) => assert_eq!(data, br#"aaa"aa""\b"#),
         _ => panic!(),
     }

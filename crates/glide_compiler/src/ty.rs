@@ -2,6 +2,7 @@ use std::{cmp::Ordering, collections::HashMap};
 
 use crate::error::{Error, Result};
 
+/// A type, consisting of a type constructor instantiated with type parameters.
 #[derive(Debug)]
 pub(crate) enum Ty {
     Void,
@@ -9,14 +10,26 @@ pub(crate) enum Ty {
     String,
     Slice(TyId),
     Func(Vec<TyId>, TyId),
+
+    /// A parametric type. Each has a unique [`TyId`], which is compared to determine equality.
     Param,
+
+    /// Type will be inferred to be another type.
     Infer,
+
+    /// Equal to another type.
     Equal(TyId),
 }
 
+/// An identifier for a [`Ty`] in a [`Tys`].
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub(crate) struct TyId(usize);
 
+impl TyId {
+    pub(crate) const PLACEHOLDER: Self = Self(usize::MAX);
+}
+
+/// Contains [`Ty`]s and assigns [`TyId`]s.
 #[derive(Debug)]
 pub(crate) struct Tys(Vec<Ty>);
 
@@ -49,6 +62,7 @@ impl Tys {
         }
     }
 
+    /// Unifies two types, by trying to make them equal.
     pub(crate) fn unify(&mut self, l: TyId, r: TyId) -> Result<()> {
         if l.0 == r.0 {
             return Ok(());

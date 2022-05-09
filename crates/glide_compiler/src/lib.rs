@@ -1,22 +1,21 @@
-use std::{collections::HashMap, fmt::Write};
+use std::{fmt::Write, mem};
 
 use glide_ast::{
-    expr::Expr,
+    def::Def,
+    expr::{Call, Expr, If},
     stmt::{Stmt, VarDecl},
     Ast,
 };
 use glide_ir::Ir;
 
-use crate::func::{CompiledFunc, Func};
-
 use self::{
     engine::Engine,
     error::{Error, Result},
-    func::{FuncBody, Insn, InstantiatedFuncId},
+    func::{Func, FuncBody, FuncCompiled, FuncUsage, FuncsCompiled},
     namespace::Namespace,
     ty::{Ty, TyId},
     ty_constr::TyConstr,
-    value::Value,
+    value::{Value, ValueRef},
 };
 
 mod engine;
@@ -27,65 +26,68 @@ mod ty;
 mod ty_constr;
 mod value;
 
-pub fn compile(ast: &Ast) -> Result<Ir> {
+pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
     let mut engine = Engine::new();
     let mut global_namespace = Namespace::new();
 
-    let builtin_ty_constrs = [
-        ("Void", TyConstr::Void),
-        ("Int", TyConstr::Int),
-        ("String", TyConstr::String),
-        ("Slice", TyConstr::Slice),
-    ];
-    for (name, constr) in builtin_ty_constrs {
+    {
         global_namespace
-            .insert_ty_constr(name.to_owned(), engine.ty_constrs.add(constr))
+            .insert_ty_constr("Void".to_owned(), engine.ty_constrs.add(TyConstr::Void))
+            .unwrap();
+        global_namespace
+            .insert_ty_constr("Int".to_owned(), engine.ty_constrs.add(TyConstr::Int))
+            .unwrap();
+        global_namespace
+            .insert_ty_constr("String".to_owned(), engine.ty_constrs.add(TyConstr::String))
+            .unwrap();
+        global_namespace
+            .insert_ty_constr("Slice".to_owned(), engine.ty_constrs.add(TyConstr::Slice))
             .unwrap();
     }
-
-    let mut funcs = Vec::new();
-
     {
-        let string = engine.tys.add(Ty::String);
-        let void = engine.tys.add(Ty::Void);
-        let signature = engine.tys.add(Ty::Func(vec![string], void));
-        let print = engine.values.add(Value::Func(Func {
+        let params = vec![engine.tys.add(Ty::String)];
+        let ret = engine.tys.add(Ty::Void);
+        let signature = engine.tys.add(Ty::Func(params, ret));
+        let id = engine.funcs.add(Func {
             name: "print".to_owned(),
             ty_params: Vec::new(),
             signature,
             body: FuncBody::Print,
             cur_mono: false,
-        }));
+        });
         global_namespace
-            .insert_value("print".to_owned(), print)
+            .insert_value("print".to_owned(), ValueRef::Func(id))
             .unwrap();
     }
-    {
-        let string = engine.tys.add(Ty::String);
-        let signature = engine.tys.add(Ty::Func(vec![string, string], string));
-        let print = engine.values.add(Value::Func(Func {
-            name: "stringConcat".to_owned(),
+
+    let mut funcs = Vec::new();
+
+    // Register names in the global namespace first.
+    for def in &ast.defs {
+        let Def::Func(glide_ast::def::Func {
+            name,
+            generics,
+            params,
+            ret,
+            block,
+        }) = def;
+
+        let func_id = engine.funcs.add(Func {
+            name: name.data().to_owned(),
             ty_params: Vec::new(),
-            signature,
-            body: FuncBody::StringConcat,
+            signature: TyId::PLACEHOLDER,
+            body: FuncBody::Normal(Vec::new()),
             cur_mono: false,
-        }));
-        global_namespace
-            .insert_value("stringConcat".to_owned(), print)
-            .unwrap();
+        });
+        global_namespace.insert_value(name.data().to_owned(), ValueRef::Func(func_id))?;
+
+        funcs.push((func_id, generics, params, ret, block));
     }
 
-    for glide_ast::def::Def::Func(glide_ast::def::Func {
-        name,
-        generics,
-        params,
-        ret,
-        stmts,
-    }) in &ast.defs
-    {
-        let name = name.data().to_owned();
-
+    // Resolve and compile each function semantically.
+    for (func_id, generics, params, ret, block) in funcs {
         let mut func_namespace = global_namespace.sub();
+        let func = engine.funcs.get_mut(func_id);
 
         let mut ty_params = Vec::new();
         for generic in generics {
@@ -94,98 +96,84 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
             func_namespace.insert_ty_constr(generic.data().to_owned(), ty_constr)?;
             ty_params.push(ty);
         }
+        func.ty_params = ty_params;
 
-        let mut param_tys = Vec::new();
-        for (_, ty) in params {
-            let ty = resolve_ty(&mut engine, &func_namespace, ty)?;
-            param_tys.push(ty);
-        }
+        let param_tys: Vec<TyId> = params
+            .iter()
+            .enumerate()
+            .map(|(idx, (name, ty))| {
+                let ty = resolve_ty(&mut engine, &func_namespace, ty)?;
+                func_namespace.insert_value(name.data().to_owned(), ValueRef::Param(idx))?;
+                Ok(ty)
+            })
+            .collect::<Result<Vec<TyId>>>()?;
 
-        let ret = match ret {
+        let ret_ty = match ret {
             Some(ty) => resolve_ty(&mut engine, &func_namespace, ty)?,
             None => engine.tys.add(Ty::Void),
         };
 
-        let signature = engine.tys.add(Ty::Func(param_tys.clone(), ret));
+        let signature = engine.tys.add(Ty::Func(param_tys.clone(), ret_ty));
+        let func = engine.funcs.get_mut(func_id);
+        func.signature = signature;
 
-        let mut locals = vec![signature];
+        let mut values = Vec::new();
 
-        for (&ty, (name, _)) in param_tys.iter().zip(params) {
-            let idx = locals.len();
-            locals.push(ty);
-            let value = engine.values.add(Value::Local(idx));
-            func_namespace.insert_value(name.data().to_owned(), value)?;
-        }
-
-        let func = Func {
-            name: name.clone(),
-            ty_params,
-            signature,
-            body: FuncBody::Normal(Vec::new()),
-            cur_mono: false,
-        };
-        let func_id = engine.values.add(Value::Func(func));
-
-        let func_namespace = func_namespace.detach();
-        global_namespace.insert_value(name, func_id)?;
-
-        funcs.push((func_id, func_namespace, locals, ret, stmts));
-    }
-
-    for (func_id, func_namespace, mut locals, ret, stmts) in funcs {
-        let mut func_namespace = func_namespace.attach(&global_namespace);
-
-        let mut insns = Vec::new();
-
-        match &stmts[..] {
+        match &block.stmts[..] {
             [] => {
-                if engine.tys.is_void(ret) {
-                    insns.push(Insn::PushVoid);
-                    locals.push(ret);
-                } else {
-                    return Err(Error::TyMismatch);
-                }
+                let void = engine.tys.add(Ty::Void);
+                engine.tys.unify(ret_ty, void)?;
+                values.push((Value::Ret(Box::new(Value::Void)), engine.tys.add(Ty::Void)));
             }
             [rest @ .., last] => {
                 for stmt in rest {
                     compile_stmt(
                         &mut engine,
                         &mut func_namespace,
-                        &mut locals,
-                        &mut insns,
+                        &param_tys,
+                        &mut values,
                         stmt,
                     )?;
-                    insns.push(Insn::Pop);
-                    locals.pop().unwrap();
                 }
-                let last_ty = compile_stmt(
+                let last_idx = compile_stmt(
                     &mut engine,
                     &mut func_namespace,
-                    &mut locals,
-                    &mut insns,
+                    &param_tys,
+                    &mut values,
                     last,
                 )?;
-                match (engine.tys.is_void(ret), engine.tys.is_void(last_ty)) {
-                    (true, true) => (),
-                    (true, false) => {
-                        insns.push(Insn::Pop);
-                        locals.pop().unwrap();
-                        insns.push(Insn::PushVoid);
-                        locals.push(ret);
+                let (last_value, last_ty) = &mut values[last_idx];
+                match (engine.tys.is_void(ret_ty), engine.tys.is_void(*last_ty)) {
+                    (true, true | false) => {
+                        // If the last statement was not void, do not try to make it, as it may cause
+                        // incorrent inferrence.
+                        values.push((Value::Ret(Box::new(Value::Void)), engine.tys.add(Ty::Void)));
                     }
-                    (false, true) => return Err(Error::TyMismatch),
-                    (false, false) => engine.tys.unify(ret, last_ty)?,
+                    (false, true) => {
+                        return Err(Error::TyMismatch);
+                    }
+                    (false, false) => {
+                        engine.tys.unify(ret_ty, *last_ty)?;
+                        let value = mem::replace(last_value, Value::Void); // placeholder
+                        *last_value = Value::Ret(Box::new(value));
+                    }
                 }
             }
         }
 
-        insns.push(Insn::Ret);
-
-        engine.values.get_mut(func_id).as_mut_func().unwrap().body = FuncBody::Normal(insns);
+        let func = engine.funcs.get_mut(func_id);
+        func.body = FuncBody::Normal(values.into_iter().map(|(value, _)| value).collect());
     }
 
-    let main_id = global_namespace.get_value("main").ok_or(Error::NoMain)?;
-    let main = engine.values.get(main_id).as_func().unwrap();
+    // Monomorphize functions beginning with main.
+    let mut compiled = FuncsCompiled::new();
+    let mut ir_funcs = glide_ir::Funcs::new();
+
+    let main_id = match global_namespace.get_value("main") {
+        Some(ValueRef::Func(func)) => func,
+        _ => return Err(Error::NoMain),
+    };
+    let main = engine.funcs.get(main_id);
     if !main.ty_params.is_empty() {
         return Err(Error::NoMain);
     }
@@ -193,235 +181,218 @@ pub fn compile(ast: &Ast) -> Result<Ir> {
     let expected_main_ty = engine.tys.add(Ty::Func(Vec::new(), void));
     engine.tys.unify(expected_main_ty, main.signature)?;
 
-    let instantiated_main = engine.instantiate_func(main_id);
+    let main_usage = engine.use_func(main_id);
 
-    let mut ir = Ir::new();
-    let mut compiled_funcs = HashMap::new();
+    let main_id = monomorphize_func(&mut engine, &mut ir_funcs, &mut compiled, &main_usage)?;
 
-    let main_id = monomorphize(&mut engine, &mut ir, &mut compiled_funcs, instantiated_main)?;
-    ir.main_func = main_id;
-
-    Ok(ir)
+    Ok(Ir {
+        funcs: ir_funcs,
+        main_func: main_id,
+    })
 }
 
 fn resolve_ty(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
-    ty: &glide_ast::ty::Ty<'_>,
+    glide_ast::ty::Ty { name, generics }: &glide_ast::ty::Ty<'_>,
 ) -> Result<TyId> {
     let ty_constr = namespace
-        .get_ty_constr(ty.name.data())
+        .get_ty_constr(name.data())
         .ok_or(Error::UnresolvedName)?;
     let mut ty_args = Vec::new();
-    for generic in &ty.generics {
+    for generic in generics {
         ty_args.push(resolve_ty(engine, namespace, generic)?);
     }
     engine.instantiate_ty(ty_constr, ty_args)
 }
 
+fn compile_ty(engine: &Engine, ty: TyId) -> Result<glide_ir::Ty> {
+    match engine.tys.get(ty) {
+        Ty::Void => Ok(glide_ir::Ty::Void),
+        Ty::Int => Ok(glide_ir::Ty::Int),
+        Ty::String => Ok(glide_ir::Ty::String),
+        Ty::Slice(elem) => Ok(glide_ir::Ty::Slice(Box::new(compile_ty(engine, *elem)?))),
+        Ty::Func(params, ret) => {
+            let params = params
+                .iter()
+                .map(|&param| compile_ty(engine, param))
+                .collect::<Result<Vec<glide_ir::Ty>>>()?;
+            let ret = compile_ty(engine, *ret)?;
+            Ok(glide_ir::Ty::Func(params, Box::new(ret)))
+        }
+        Ty::Param => panic!(),
+        Ty::Infer => Err(Error::CannotInfer),
+        Ty::Equal(ty) => compile_ty(engine, *ty),
+    }
+}
+
 fn compile_stmt(
     engine: &mut Engine,
     namespace: &mut Namespace<'_>,
-    locals: &mut Vec<TyId>,
-    insns: &mut Vec<Insn>,
+    params: &[TyId],
+    values: &mut Vec<(Value, TyId)>,
     stmt: &Stmt<'_>,
-) -> Result<TyId> {
-    match stmt {
+) -> Result<usize> {
+    let idx = values.len();
+    let (value, ty) = match stmt {
         Stmt::Var(VarDecl { name, ty, value }) => {
-            let value_ty = compile_expr(engine, namespace, locals, insns, value)?;
-            if let Some(ty) = ty {
-                let ty = resolve_ty(engine, namespace, ty)?;
-                engine.tys.unify(ty, value_ty)?;
+            let (value, found_ty) = compile_expr(engine, namespace, params, values, value)?;
+            if let Some(expect_ty) = ty {
+                let expect_ty = resolve_ty(engine, namespace, expect_ty)?;
+                engine.tys.unify(expect_ty, found_ty)?;
             }
-            let idx = locals.len() - 1;
-            let value_id = engine.values.add(Value::Local(idx));
-            namespace.insert_value(name.data().to_owned(), value_id)?;
-            let void = engine.tys.add(Ty::Void);
-            locals.push(void);
-            insns.push(Insn::PushVoid);
-            Ok(void)
+            namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
+            (value, found_ty)
         }
-        Stmt::Expr(expr) => compile_expr(engine, namespace, locals, insns, expr),
-    }
+        Stmt::Expr(expr) => compile_expr(engine, namespace, params, values, expr)?,
+    };
+    values.push((value, ty));
+    Ok(idx)
 }
 
 fn compile_expr(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
-    locals: &mut Vec<TyId>,
-    insns: &mut Vec<Insn>,
+    params: &[TyId],
+    values: &[(Value, TyId)],
     expr: &Expr<'_>,
-) -> Result<TyId> {
+) -> Result<(Value, TyId)> {
     match expr {
         Expr::Integer(span) => {
-            let value: isize = span.data().parse().map_err(|_| Error::IntegerOverflow)?;
-            let ty = engine.tys.add(Ty::Int);
-            insns.push(Insn::PushInt(value));
-            locals.push(ty);
-            Ok(ty)
+            let value: i64 = span.data().parse().map_err(|_| Error::IntegerOverflow)?;
+            Ok((Value::ConstantInt(value), engine.tys.add(Ty::Int)))
         }
-        Expr::String { data } => {
-            let ty = engine.tys.add(Ty::String);
-            insns.push(Insn::PushString(data.clone()));
-            locals.push(ty);
-            Ok(ty)
-        }
+        Expr::String { data } => Ok((
+            Value::ConstantString(data.clone()),
+            engine.tys.add(Ty::String),
+        )),
         Expr::Var(name) => {
-            let value_id = namespace
+            let v = namespace
                 .get_value(name.data())
                 .ok_or(Error::UnresolvedName)?;
-            let value = engine.values.get(value_id);
-            match value {
-                Value::Local(idx) => {
-                    let idx = *idx;
-                    insns.push(Insn::PushLocal(idx));
-                    let ty = locals[idx];
-                    locals.push(ty);
-                    Ok(ty)
-                }
-                Value::Func(_) => {
-                    let instantiated_func = engine.instantiate_func(value_id);
-                    let signature = engine.instantiated_funcs.get(instantiated_func).signature;
-                    insns.push(Insn::PushFunc(instantiated_func));
-                    locals.push(signature);
-                    Ok(signature)
+            match v {
+                ValueRef::Param(idx) => Ok((Value::Param(idx), params[idx])),
+                ValueRef::Local(idx) => Ok((Value::Local(idx), values[idx].1)),
+                ValueRef::Func(func) => {
+                    let usage = engine.use_func(func);
+                    let signature = usage.signature;
+                    Ok((Value::Func(usage), signature))
                 }
             }
         }
-        Expr::Call(glide_ast::expr::Call { receiver, args }) => {
-            let call_idx = locals.len();
-            let receiver_ty = compile_expr(engine, namespace, locals, insns, receiver)?;
+        Expr::Call(Call { receiver, args }) => {
+            let (receiver_value, receiver_ty) =
+                compile_expr(engine, namespace, params, values, receiver)?;
+            let mut arg_values = Vec::new();
             let mut arg_tys = Vec::new();
             for arg in args {
-                arg_tys.push(compile_expr(engine, namespace, locals, insns, arg)?);
+                let (value, ty) = compile_expr(engine, namespace, params, values, arg)?;
+                arg_values.push(value);
+                arg_tys.push(ty);
             }
             let ret_ty = engine.tys.add(Ty::Infer);
-            let expect_ty = engine.tys.add(Ty::Func(arg_tys, ret_ty));
-            engine.tys.unify(expect_ty, receiver_ty)?;
-            insns.push(Insn::Call {
-                at: call_idx,
-                ret: ret_ty,
-            });
-            locals.truncate(call_idx);
-            locals.push(ret_ty);
-            Ok(ret_ty)
+            let expect_receiver_ty = engine.tys.add(Ty::Func(arg_tys, ret_ty));
+            engine.tys.unify(expect_receiver_ty, receiver_ty)?;
+            Ok((Value::Call(Box::new(receiver_value), arg_values), ret_ty))
+        }
+        Expr::If(If { branches, els }) => {
+            todo!()
         }
     }
 }
 
-fn monomorphize(
+fn monomorphize_func(
     engine: &mut Engine,
-    ir: &mut Ir,
-    compiled_funcs: &mut HashMap<CompiledFunc, glide_ir::FuncId>,
-    instantiated_func_id: InstantiatedFuncId,
+    ir_funcs: &mut glide_ir::Funcs,
+    funcs_compiled: &mut FuncsCompiled,
+    usage: &FuncUsage,
 ) -> Result<glide_ir::FuncId> {
-    let instantiated_func = engine.instantiated_funcs.get(instantiated_func_id);
-    let func = instantiated_func.func;
-    let signature = instantiated_func.signature;
-
     let compiled = {
         let mut ty_args = Vec::new();
-        for &ty_arg in &instantiated_func.ty_args {
-            ty_args.push(compile_ty(engine, &mut ir.tys, ty_arg)?);
+        for &ty_arg in &usage.ty_args {
+            ty_args.push(compile_ty(engine, ty_arg)?);
         }
-        CompiledFunc { func, ty_args }
-    };
-    if let Some(id) = compiled_funcs.get(&compiled) {
-        return Ok(*id);
-    }
-
-    let id = {
-        let mut name = engine
-            .values
-            .get(compiled.func)
-            .as_func()
-            .unwrap()
-            .name
-            .clone();
-        if let Some((last, rest)) = compiled.ty_args.split_last() {
-            write!(name, "<").unwrap();
-            for &ty_arg in rest {
-                write!(name, "{}, ", ir.tys.display(ty_arg)).unwrap();
-            }
-            write!(name, "{}>", ir.tys.display(*last)).unwrap();
+        FuncCompiled {
+            func: usage.func,
+            ty_args,
         }
-
-        let signature = compile_ty(engine, &mut ir.tys, signature)?;
-        let id = ir.funcs.add(glide_ir::Func {
-            name,
-            signature,
-            data: glide_ir::FuncData::Normal(Vec::new()),
-        });
-        compiled_funcs.insert(compiled, id);
-        id
     };
 
-    {
-        let func = engine.values.get_mut(func).as_mut_func().unwrap();
-        if func.cur_mono {
-            return Err(Error::TyRecursion);
+    if let Some(id) = funcs_compiled.get(&compiled) {
+        return Ok(id);
+    }
+
+    if engine.funcs.get(usage.func).cur_mono {
+        return Err(Error::TyRecursion);
+    }
+    engine.funcs.get_mut(usage.func).cur_mono = true;
+
+    let mut name = engine.funcs.get(usage.func).name.clone();
+    if let [rest @ .., last] = &compiled.ty_args[..] {
+        write!(name, "<").unwrap();
+        for ty_arg in rest {
+            write!(name, "{}, ", ty_arg).unwrap();
         }
-        func.cur_mono = true;
-
-        let body = match func.body.clone() {
-            FuncBody::Normal(insns) => {
-                let mut ir_insns = Vec::new();
-                for insn in insns {
-                    match &insn {
-                        Insn::PushVoid => ir_insns.push(glide_ir::Insn::PushVoid),
-                        Insn::PushInt(value) => ir_insns.push(glide_ir::Insn::PushInt(*value)),
-                        Insn::PushString(string) => {
-                            ir_insns.push(glide_ir::Insn::PushString(string.clone()))
-                        }
-                        Insn::PushLocal(idx) => ir_insns.push(glide_ir::Insn::PushLocal(*idx)),
-                        Insn::PushFunc(func) => {
-                            let id = monomorphize(engine, ir, compiled_funcs, *func)?;
-                            ir_insns.push(glide_ir::Insn::PushFunc(id));
-                        }
-                        Insn::Pop => ir_insns.push(glide_ir::Insn::Pop),
-                        Insn::Call { at, ret } => {
-                            let ret = compile_ty(engine, &mut ir.tys, *ret)?;
-                            ir_insns.push(glide_ir::Insn::Call { at: *at, ret })
-                        }
-                        Insn::Ret => ir_insns.push(glide_ir::Insn::Ret),
-                    }
-                }
-
-                glide_ir::FuncData::Normal(ir_insns)
-            }
-            FuncBody::Print => glide_ir::FuncData::Print,
-            FuncBody::StringConcat => glide_ir::FuncData::StringConcat,
-        };
-        ir.funcs.get_mut(id).data = body;
+        write!(name, "{}>", last).unwrap();
     }
 
-    {
-        let func = engine.values.get_mut(func).as_mut_func().unwrap();
-        func.cur_mono = false;
-    }
+    let signature = compile_ty(engine, usage.signature)?;
+
+    let id = ir_funcs.add(glide_ir::Func {
+        name,
+        signature,
+        body: glide_ir::FuncBody::Normal(Vec::new()),
+    });
+    funcs_compiled.insert(compiled, id);
+
+    let body = engine.funcs.get(usage.func).body.clone();
+    let body = match body {
+        FuncBody::Normal(values) => {
+            let ir_values = values
+                .into_iter()
+                .map(|v| lower_value(engine, ir_funcs, funcs_compiled, v))
+                .collect::<Result<Vec<glide_ir::Value>>>()?;
+            glide_ir::FuncBody::Normal(ir_values)
+        }
+        FuncBody::Print => glide_ir::FuncBody::Print,
+    };
+
+    ir_funcs.get_mut(id).body = body;
+
+    engine.funcs.get_mut(usage.func).cur_mono = false;
 
     Ok(id)
 }
 
-fn compile_ty(engine: &Engine, tys: &mut glide_ir::Tys, ty: TyId) -> Result<glide_ir::TyId> {
-    match engine.tys.get(ty) {
-        Ty::Void => Ok(tys.add(glide_ir::Ty::Void)),
-        Ty::Int => Ok(tys.add(glide_ir::Ty::Int)),
-        Ty::String => Ok(tys.add(glide_ir::Ty::String)),
-        Ty::Slice(elem) => {
-            let elem = compile_ty(engine, tys, *elem)?;
-            Ok(tys.add(glide_ir::Ty::Slice(elem)))
+fn lower_value(
+    engine: &mut Engine,
+    ir_funcs: &mut glide_ir::Funcs,
+    funcs_compiled: &mut FuncsCompiled,
+    value: Value,
+) -> Result<glide_ir::Value> {
+    Ok(match value {
+        Value::Void => glide_ir::Value::Void,
+        Value::ConstantInt(value) => glide_ir::Value::ConstantInt(value),
+        Value::ConstantString(data) => glide_ir::Value::ConstantString(data),
+        Value::Local(idx) => glide_ir::Value::Local(idx),
+        Value::Param(idx) => glide_ir::Value::Param(idx),
+        Value::Func(usage) => {
+            let id = monomorphize_func(engine, ir_funcs, funcs_compiled, &usage)?;
+            glide_ir::Value::Func(id)
         }
-        Ty::Func(params, ret) => {
-            let mut ir_params = Vec::new();
-            for &param in params {
-                ir_params.push(compile_ty(engine, tys, param)?);
-            }
-            let ret = compile_ty(engine, tys, *ret)?;
-            Ok(tys.add(glide_ir::Ty::Func(ir_params, ret)))
+        Value::Call(receiver, args) => {
+            let receiver = lower_value(engine, ir_funcs, funcs_compiled, *receiver)?;
+            let args = args
+                .into_iter()
+                .map(|v| lower_value(engine, ir_funcs, funcs_compiled, v))
+                .collect::<Result<Vec<glide_ir::Value>>>()?;
+            glide_ir::Value::Call(Box::new(receiver), args)
         }
-        Ty::Param => unreachable!(),
-        Ty::Infer => Err(Error::CannotInfer),
-        Ty::Equal(ty) => compile_ty(engine, tys, *ty),
-    }
+        Value::Ret(value) => glide_ir::Value::Ret(Box::new(lower_value(
+            engine,
+            ir_funcs,
+            funcs_compiled,
+            *value,
+        )?)),
+    })
 }

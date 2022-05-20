@@ -16,6 +16,12 @@ pub struct Func {
 #[derive(Copy, Clone, Debug)]
 pub struct FuncId(usize);
 
+impl FuncId {
+    pub fn inner(self) -> usize {
+        self.0
+    }
+}
+
 #[derive(Debug)]
 pub struct Funcs(Vec<Func>);
 

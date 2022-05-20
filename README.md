@@ -44,5 +44,7 @@ cargo b -p glide_cli --release
 Then run the Hello World example with
 
 ```
-./target/release/glide_cli ./examples/hello.gl
+./target/release/glide_cli ./examples/hello.gl > out.ll
+clang-14 out.ll -o out
+./out
 ```

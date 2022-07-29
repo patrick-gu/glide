@@ -5,6 +5,7 @@ use crate::ty::TyId;
 pub(crate) enum TyConstr {
     Void,
     Int,
+    Bool,
     String,
     Slice,
     Param(TyId),

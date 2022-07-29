@@ -15,6 +15,10 @@ pub(crate) struct Func {
 pub(crate) enum FuncBody {
     Normal(Vec<Value>),
     Print,
+    PrintInt,
+    Add,
+    Sub,
+    EqInt,
 }
 
 #[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]

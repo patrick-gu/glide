@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 pub(crate) enum Ty {
     Void,
     Int,
+    Bool,
     String,
     Slice(TyId),
     Func(Vec<TyId>, TyId),
@@ -76,7 +77,10 @@ impl Tys {
                 *infer = Ty::Equal(r);
                 Ok(())
             }
-            (Ty::Void, Ty::Void) | (Ty::Int, Ty::Int) | (Ty::String, Ty::String) => Ok(()),
+            (Ty::Void, Ty::Void)
+            | (Ty::Int, Ty::Int)
+            | (Ty::String, Ty::String)
+            | (Ty::Bool, Ty::Bool) => Ok(()),
             (Ty::Equal(l), _) => {
                 let l = *l;
                 self.unify(l, r)
@@ -111,7 +115,7 @@ impl Tys {
             return *sub;
         }
         match self.get(ty) {
-            Ty::Void | Ty::Int | Ty::String => ty,
+            Ty::Void | Ty::Int | Ty::Bool | Ty::String => ty,
             Ty::Slice(ty) => {
                 let ty = *ty;
                 let ty = self.clone_substitute(ty, map);

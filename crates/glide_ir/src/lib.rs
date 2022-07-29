@@ -59,6 +59,10 @@ impl Default for Funcs {
 pub enum FuncBody {
     Normal(Vec<Value>),
     Print,
+    PrintInt,
+    Add,
+    Sub,
+    EqInt,
 }
 
 /// A type.
@@ -66,6 +70,7 @@ pub enum FuncBody {
 pub enum Ty {
     Void,
     Int,
+    Bool,
     String,
     Slice(Box<Ty>),
     Func(Vec<Ty>, Box<Ty>),
@@ -83,6 +88,7 @@ impl fmt::Display for Ty {
         match self {
             Self::Void => write!(f, "Void"),
             Self::Int => write!(f, "Int"),
+            Self::Bool => write!(f, "Bool"),
             Self::String => write!(f, "String"),
             Self::Slice(elem) => write!(f, "Slice<{}>", elem),
             Self::Func(params, ret) => {
@@ -115,4 +121,5 @@ pub enum Value {
     Func(FuncId),
     Call(Box<Value>, Vec<Value>),
     Ret(Box<Value>),
+    // If {/
 }

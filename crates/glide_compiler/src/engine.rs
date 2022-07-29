@@ -30,6 +30,7 @@ impl Engine {
         match self.ty_constrs.get(ty_constr) {
             TyConstr::Void if ty_args.is_empty() => Ok(self.tys.add(Ty::Void)),
             TyConstr::Int if ty_args.is_empty() => Ok(self.tys.add(Ty::Int)),
+            TyConstr::Bool if ty_args.is_empty() => Ok(self.tys.add(Ty::Bool)),
             TyConstr::String if ty_args.is_empty() => Ok(self.tys.add(Ty::String)),
             TyConstr::Slice if ty_args.len() == 1 => Ok(self.tys.add(Ty::Slice(ty_args[0]))),
             TyConstr::Param(ty) if ty_args.is_empty() => Ok(*ty),

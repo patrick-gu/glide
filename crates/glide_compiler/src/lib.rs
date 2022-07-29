@@ -38,6 +38,9 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
             .insert_ty_constr("Int".to_owned(), engine.ty_constrs.add(TyConstr::Int))
             .unwrap();
         global_namespace
+            .insert_ty_constr("Bool".to_owned(), engine.ty_constrs.add(TyConstr::Bool))
+            .unwrap();
+        global_namespace
             .insert_ty_constr("String".to_owned(), engine.ty_constrs.add(TyConstr::String))
             .unwrap();
         global_namespace
@@ -57,6 +60,69 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
         });
         global_namespace
             .insert_value("print".to_owned(), ValueRef::Func(id))
+            .unwrap();
+    }
+    {
+        let params = vec![engine.tys.add(Ty::Int)];
+        let ret = engine.tys.add(Ty::Void);
+        let signature = engine.tys.add(Ty::Func(params, ret));
+        let id = engine.funcs.add(Func {
+            name: "printInt".to_owned(),
+            ty_params: Vec::new(),
+            signature,
+            body: FuncBody::PrintInt,
+            cur_mono: false,
+        });
+        global_namespace
+            .insert_value("printInt".to_owned(), ValueRef::Func(id))
+            .unwrap();
+    }
+    {
+        let int = engine.tys.add(Ty::Int);
+        let params = vec![int, int];
+        let ret = int;
+        let signature = engine.tys.add(Ty::Func(params, ret));
+        let id = engine.funcs.add(Func {
+            name: "add".to_owned(),
+            ty_params: Vec::new(),
+            signature,
+            body: FuncBody::Add,
+            cur_mono: false,
+        });
+        global_namespace
+            .insert_value("add".to_owned(), ValueRef::Func(id))
+            .unwrap();
+    }
+    {
+        let int = engine.tys.add(Ty::Int);
+        let params = vec![int, int];
+        let ret = int;
+        let signature = engine.tys.add(Ty::Func(params, ret));
+        let id = engine.funcs.add(Func {
+            name: "sub".to_owned(),
+            ty_params: Vec::new(),
+            signature,
+            body: FuncBody::Sub,
+            cur_mono: false,
+        });
+        global_namespace
+            .insert_value("sub".to_owned(), ValueRef::Func(id))
+            .unwrap();
+    }
+    {
+        let int = engine.tys.add(Ty::Int);
+        let params = vec![int, int];
+        let ret = engine.tys.add(Ty::Bool);
+        let signature = engine.tys.add(Ty::Func(params, ret));
+        let id = engine.funcs.add(Func {
+            name: "eqInt".to_owned(),
+            ty_params: Vec::new(),
+            signature,
+            body: FuncBody::EqInt,
+            cur_mono: false,
+        });
+        global_namespace
+            .insert_value("eqInt".to_owned(), ValueRef::Func(id))
             .unwrap();
     }
 
@@ -83,6 +149,8 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
 
         funcs.push((func_id, generics, params, ret, block));
     }
+
+    let mut funcs_2 = Vec::new();
 
     // Resolve and compile each function semantically.
     for (func_id, generics, params, ret, block) in funcs {
@@ -117,6 +185,10 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
         let func = engine.funcs.get_mut(func_id);
         func.signature = signature;
 
+        funcs_2.push((block, func_namespace, param_tys, ret_ty, func_id));
+    }
+
+    for (block, mut func_namespace, param_tys, ret_ty, func_id) in funcs_2 {
         let mut values = Vec::new();
 
         match &block.stmts[..] {
@@ -210,6 +282,7 @@ fn compile_ty(engine: &Engine, ty: TyId) -> Result<glide_ir::Ty> {
     match engine.tys.get(ty) {
         Ty::Void => Ok(glide_ir::Ty::Void),
         Ty::Int => Ok(glide_ir::Ty::Int),
+        Ty::Bool => Ok(glide_ir::Ty::Bool),
         Ty::String => Ok(glide_ir::Ty::String),
         Ty::Slice(elem) => Ok(glide_ir::Ty::Slice(Box::new(compile_ty(engine, *elem)?))),
         Ty::Func(params, ret) => {
@@ -296,7 +369,37 @@ fn compile_expr(
             Ok((Value::Call(Box::new(receiver_value), arg_values), ret_ty))
         }
         Expr::If(If { branches, els }) => {
-            todo!()
+            let bool = engine.tys.add(Ty::Bool);
+
+            // if statement:
+            //    if has an else
+            //       evaluate to Void and discard values
+            //    otherwise
+            //       evaluate to Void or unify?
+            // if expression:
+            //    if has an else
+            //       error
+            //    else
+            //       unify
+
+            if let Some(els) = els {
+                let (first_cond, first_value) = &branches[0];
+                let (first_cond_value, first_cond_ty) =
+                    compile_expr(engine, namespace, params, values, first_cond)?;
+                // let (first_value, first_value_ty) =
+                //     compile_expr(engine, namespace, params, values, first_value);
+
+                todo!()
+                // for (cond, value) in branches {
+                //     let (cond_value, cond_ty) =
+                //         compile_expr(engine, namespace, params, values, cond)?;
+                //     engine.tys.unify(cond_ty, bool)?;
+
+                //     // let (value, value_ty) = compile_expr(engine, namespace, params, values, value);
+                // }
+            } else {
+                todo!()
+            }
         }
     }
 }
@@ -355,6 +458,10 @@ fn monomorphize_func(
             glide_ir::FuncBody::Normal(ir_values)
         }
         FuncBody::Print => glide_ir::FuncBody::Print,
+        FuncBody::PrintInt => glide_ir::FuncBody::PrintInt,
+        FuncBody::Add => glide_ir::FuncBody::Add,
+        FuncBody::Sub => glide_ir::FuncBody::Sub,
+        FuncBody::EqInt => glide_ir::FuncBody::EqInt,
     };
 
     ir_funcs.get_mut(id).body = body;

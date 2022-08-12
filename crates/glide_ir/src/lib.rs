@@ -121,5 +121,9 @@ pub enum Value {
     Func(FuncId),
     Call(Box<Value>, Vec<Value>),
     Ret(Box<Value>),
-    // If {/
+    If {
+        cond: Box<Value>,
+        then: Vec<Value>,
+        els: Option<Vec<Value>>,
+    },
 }

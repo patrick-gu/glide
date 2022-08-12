@@ -5,16 +5,18 @@ use std::{
 
 use glide_codegen_llvm::llvm::{
     core::{
-        LLVMAddFunction, LLVMAppendBasicBlock, LLVMBuildAdd, LLVMBuildCall, LLVMBuildCall2,
-        LLVMBuildGlobalStringPtr, LLVMBuildRet, LLVMBuildRetVoid, LLVMConstInt, LLVMContextCreate,
-        LLVMCreateBuilder, LLVMFunctionType, LLVMGetAsString, LLVMGetParam, LLVMInt1TypeInContext,
-        LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
-        LLVMModuleCreateWithNameInContext, LLVMPointerType, LLVMPositionBuilderAtEnd,
-        LLVMPrintModuleToString, LLVMPrintTypeToString, LLVMSetLinkage, LLVMTypeIsSized,
-        LLVMTypeOf, LLVMVoidTypeInContext,
+        LLVMAddFunction, LLVMAddIncoming, LLVMAppendBasicBlock, LLVMAppendBasicBlockInContext,
+        LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall, LLVMBuildCall2,
+        LLVMBuildCondBr, LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet,
+        LLVMBuildRetVoid, LLVMBuildSub, LLVMConstInt, LLVMContextCreate,
+        LLVMCreateBasicBlockInContext, LLVMCreateBuilder, LLVMFunctionType, LLVMGetAsString,
+        LLVMGetInsertBlock, LLVMGetParam, LLVMInt1TypeInContext, LLVMInt32TypeInContext,
+        LLVMInt64TypeInContext, LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext,
+        LLVMPointerType, LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMPrintTypeToString,
+        LLVMSetLinkage, LLVMTypeIsSized, LLVMTypeOf, LLVMVoidTypeInContext,
     },
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
-    LLVMLinkage,
+    LLVMIntPredicate, LLVMLinkage,
 };
 use glide_ir::{FuncBody, Ir, Value};
 
@@ -149,10 +151,25 @@ unsafe fn gen_func(
             let lhs = LLVMGetParam(llvm_func, 0);
             let rhs = LLVMGetParam(llvm_func, 1);
 
-            let ret = LLVMBuildAdd(builder, lhs, rhs, "sub\0".as_ptr().cast());
+            let ret = LLVMBuildSub(builder, lhs, rhs, "sub\0".as_ptr().cast());
             LLVMBuildRet(builder, ret);
         }
-        FuncBody::EqInt => {}
+        FuncBody::EqInt => {
+            let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
+            LLVMPositionBuilderAtEnd(builder, basic_block);
+
+            let lhs = LLVMGetParam(llvm_func, 0);
+            let rhs = LLVMGetParam(llvm_func, 1);
+
+            let ret = LLVMBuildICmp(
+                builder,
+                LLVMIntPredicate::LLVMIntEQ,
+                lhs,
+                rhs,
+                "sub\0".as_ptr().cast(),
+            );
+            LLVMBuildRet(builder, ret);
+        }
     }
 }
 
@@ -254,6 +271,82 @@ unsafe fn gen_value(
                 LLVMBuildRet(builder, value);
             }
             ptr::null_mut()
+        }
+        Value::If { cond, then, els } => {
+            let init_block = LLVMGetInsertBlock(builder);
+
+            let cond = gen_value(ctx, builder, llvm_funcs, llvm_func, cond);
+
+            let mut then_block =
+                LLVMAppendBasicBlockInContext(ctx, llvm_func, b"then\0".as_ptr().cast());
+
+            // LLVMPositionBuilderAtEnd(builder, then_block);
+
+            if let Some(els) = els {
+                let mut else_block = LLVMCreateBasicBlockInContext(ctx, "else\0".as_ptr().cast());
+                let after_block = LLVMCreateBasicBlockInContext(ctx, "after\0".as_ptr().cast());
+
+                LLVMBuildCondBr(builder, cond, then_block, else_block);
+
+                LLVMPositionBuilderAtEnd(builder, then_block);
+                let then: Vec<LLVMValueRef> = then
+                    .iter()
+                    .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
+                    .collect();
+                let mut then_value = *then.last().unwrap();
+                LLVMBuildBr(builder, after_block);
+                then_block = LLVMGetInsertBlock(builder);
+
+                LLVMAppendExistingBasicBlock(llvm_func, else_block);
+                LLVMPositionBuilderAtEnd(builder, else_block);
+                let els: Vec<LLVMValueRef> = els
+                    .iter()
+                    .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
+                    .collect();
+                let mut else_value = *els.last().unwrap();
+                LLVMBuildBr(builder, after_block);
+                else_block = LLVMGetInsertBlock(builder);
+
+                LLVMAppendExistingBasicBlock(llvm_func, after_block);
+                LLVMPositionBuilderAtEnd(builder, after_block);
+                let phi = LLVMBuildPhi(builder, LLVMTypeOf(then_value), b"merge\0".as_ptr().cast());
+                LLVMAddIncoming(phi, &mut then_value, &mut then_block, 1);
+                LLVMAddIncoming(phi, &mut else_value, &mut else_block, 1);
+                phi
+
+                // todo!()
+
+                // let mut else_block =
+                //     LLVMAppendBasicBlockInContext(ctx, llvm_func, b"else\0".as_ptr().cast());
+                // LLVMPositionBuilderAtEnd(builder, else_block);
+                // let els: Vec<LLVMValueRef> = els
+                //     .iter()
+                //     .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
+                //     .collect();
+                // let mut else_value = *els.last().unwrap();
+                // LLVMPositionBuilderAtEnd(builder, init_block);
+                // LLVMBuildCondBr(builder, cond, then_block, else_block);
+                // LLVMPositionBuilderAtEnd(builder, then_block);
+                // LLVMBuildBr(builder, after_block);
+                // LLVMPositionBuilderAtEnd(builder, else_block);
+                // LLVMBuildBr(builder, after_block);
+                // LLVMPositionBuilderAtEnd(builder, after_block);
+
+                // let phi = LLVMBuildPhi(builder, LLVMTypeOf(then_value), b"merge\0".as_ptr().cast());
+                // LLVMAddIncoming(phi, &mut then_value, &mut then_block, 1);
+                // LLVMAddIncoming(phi, &mut else_value, &mut else_block, 1);
+
+                // phi
+            } else {
+                todo!()
+                // let after_block = LLVMAppendBasicBlock(llvm_func, b"after\0".as_ptr().cast());
+                // LLVMPositionBuilderAtEnd(builder, init_block);
+                // LLVMBuildCondBr(builder, cond, then_block, after_block);
+                // LLVMPositionBuilderAtEnd(builder, then_block);
+                // LLVMBuildBr(builder, after_block);
+
+                // ptr::null_mut()
+            }
         }
     }
 }

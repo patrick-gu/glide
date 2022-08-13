@@ -49,6 +49,7 @@ token_kinds!(
     Apostrophe,
     Comma,
     Equal,
+    Slash,
 
     Ident,
     Integer,
@@ -94,62 +95,81 @@ impl<'a> Lexer<'a> {
         if self.next.is_some() {
             return Ok(());
         }
-        while let Some(&(b' ' | b'\t' | b'\n' | b'\r')) = self.rem.data().as_bytes().get(0) {
-            self.advance(1);
-        }
-        if self.rem.is_empty() {
-            return Ok(());
-        }
         macro_rules! do_match {
             (
                 $($byte:literal => $kind:expr,)+
             ) => {
-                match self.rem.data().as_bytes()[0] {
+                match self.rem.data().as_bytes().get(0).copied() {
+                    Some(b' ' | b'\t' | b'\n' | b'\r') => {
+                        self.advance(1);
+                    }
                     $(
-                        $byte => {
-                            Token {
+                        Some($byte) => {
+                            break Token {
                                 span: self.advance(1),
                                 kind: $kind,
-                            }
+                            };
                         }
                     ),+
-                    b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
+                    Some(b'/') => {
+                        if let Some(&b'/') = self.rem.data().as_bytes().get(1) {
+                            let mut end = 2;
+                            loop {
+                                match self.rem.data().as_bytes().get(end) {
+                                    Some(b'\n') | None => break,
+                                    Some(_) => {
+                                        end += 1;
+                                    }
+                                }
+                            }
+                            self.advance(end);
+                        } else {
+                            break Token {
+                                span: self.advance(1),
+                                kind: TokenKind::Slash,
+                            };
+                        }
+                    }
+                    Some(b'a'..=b'z' | b'A'..=b'Z' | b'_') => {
                         let mut end = 1;
                         while let Some(b'a'..=b'z' | b'A'..=b'Z' | b'_' | b'0'..=b'9') = self.rem.data().as_bytes().get(end) {
                             end += 1;
                         }
                         let span = self.advance(end);
-                        Token {
+                        break Token {
                             span,
                             kind: TokenKind::ident_kw(span.data()),
-                        }
+                        };
                     }
-                    b'0'..=b'9' => {
+                    Some(b'0'..=b'9') => {
                         let mut end = 1;
                         while let Some(b'0'..=b'9') = self.rem.data().as_bytes().get(end) {
                             end += 1;
                         }
-                        Token {
+                        break Token {
                             span: self.advance(end),
                             kind: TokenKind::Integer,
-                        }
+                        };
                     }
-                    _ => return Err(Error::UnexpectedChar(self.advance(1)))
+                    Some(_) => return Err(Error::UnexpectedChar(self.advance(1))),
+                    None => return Ok(()),
                 }
             };
         }
-        self.next = Some(do_match!(
-            b'(' => TokenKind::LParen,
-            b')' => TokenKind::RParen,
-            b'{' => TokenKind::LBrace,
-            b'}' => TokenKind::RBrace,
-            b'<' => TokenKind::LessThan,
-            b'>' => TokenKind::GreaterThan,
-            b'"' => TokenKind::Quote,
-            b'\'' => TokenKind::Apostrophe,
-            b',' => TokenKind::Comma,
-            b'=' => TokenKind::Equal,
-        ));
+        self.next = Some(loop {
+            do_match!(
+                b'(' => TokenKind::LParen,
+                b')' => TokenKind::RParen,
+                b'{' => TokenKind::LBrace,
+                b'}' => TokenKind::RBrace,
+                b'<' => TokenKind::LessThan,
+                b'>' => TokenKind::GreaterThan,
+                b'"' => TokenKind::Quote,
+                b'\'' => TokenKind::Apostrophe,
+                b',' => TokenKind::Comma,
+                b'=' => TokenKind::Equal,
+            );
+        });
         Ok(())
     }
 

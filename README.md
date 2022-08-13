@@ -30,6 +30,11 @@ Currently, this includes:
         3
     }
     ```
+-   Single-line comments
+
+    ```
+    // This is a comment
+    ```
 
 -   Native code generation using [LLVM](https://llvm.org)
 

@@ -21,13 +21,27 @@ Currently, this includes:
 -   Local variables
 -   Native code generation using [LLVM](https://llvm.org)
 
-## Example
+## Examples
 
 [Hello world](./examples/hello.gl):
 
 ```
 func main() {
     print("Hello World!")
+}
+```
+
+[Fibonacci numbers](./examples/fibonacci.gl):
+
+```
+func fibonacci(n Int) Int {
+    if eqInt(n, 0) {
+        0
+    } else if eqInt(n, 1) {
+        1
+    } else {
+        add(fibonacci(sub(n, 1)), fibonacci(sub(n, 2)))
+    }
 }
 ```
 

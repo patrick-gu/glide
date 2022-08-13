@@ -13,7 +13,8 @@ pub(crate) struct Func {
 
 #[derive(Clone, Debug)]
 pub(crate) enum FuncBody {
-    Normal(Vec<Value>),
+    Placeholder,
+    Normal(Value),
     Print,
     PrintInt,
     Add,

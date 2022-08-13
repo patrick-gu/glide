@@ -18,7 +18,7 @@ use glide_codegen_llvm::llvm::{
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
     LLVMIntPredicate, LLVMLinkage,
 };
-use glide_ir::{FuncBody, Ir, Value};
+use glide_ir::{Func, FuncBody, Ir, Value};
 
 pub fn codegen(ir: &Ir) {
     unsafe {
@@ -37,7 +37,7 @@ pub fn codegen(ir: &Ir) {
         for (ir_func, &llvm_func) in ir.funcs.inner().iter().zip(llvm_funcs.iter()) {
             // dbg!(&ir_func.name);
             let builder = LLVMCreateBuilder();
-            gen_func(ctx, module, builder, &llvm_funcs, llvm_func, &ir_func.body);
+            gen_func(ctx, module, builder, &llvm_funcs, llvm_func, ir_func);
         }
 
         // let invalid = LLVMVerifyModule(
@@ -68,18 +68,24 @@ unsafe fn gen_func(
     builder: LLVMBuilderRef,
     llvm_funcs: &[LLVMValueRef],
     llvm_func: LLVMValueRef,
-    body: &FuncBody,
+    func: &Func,
 ) {
-    match body {
-        FuncBody::Normal(values) => {
+    match &func.body {
+        FuncBody::Placeholder => unreachable!(),
+        FuncBody::Normal(value) => {
+            let mut locals = Vec::new();
+            let num_params = match &func.signature {
+                glide_ir::Ty::Func(params, _) => params.len(),
+                _ => unreachable!(),
+            };
+            for idx in 0..num_params {
+                locals.push(LLVMGetParam(llvm_func, idx.try_into().unwrap()));
+            }
+
             let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
             LLVMPositionBuilderAtEnd(builder, basic_block);
 
-            let mut llvm_values = Vec::new();
-            for value in values {
-                // dbg!(value);
-                llvm_values.push(gen_value(ctx, builder, llvm_funcs, llvm_func, value));
-            }
+            gen_value(ctx, builder, llvm_funcs, llvm_func, &mut locals, value);
         }
         FuncBody::Print => {
             let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
@@ -211,6 +217,7 @@ unsafe fn gen_value(
     builder: LLVMBuilderRef,
     llvm_funcs: &[LLVMValueRef],
     llvm_func: LLVMValueRef,
+    locals: &mut Vec<LLVMValueRef>,
     value: &Value,
 ) -> LLVMValueRef {
     match value {
@@ -223,26 +230,16 @@ unsafe fn gen_value(
             let data = CString::new(&**value).unwrap();
             LLVMBuildGlobalStringPtr(builder, data.as_ptr(), "anonymous_string\0".as_ptr().cast())
         }
-        Value::Local(idx) => todo!(),
-        Value::Param(idx) => LLVMGetParam(llvm_func, (*idx).try_into().unwrap()),
+        Value::Local(idx) => locals[*idx],
         Value::Func(id) => llvm_funcs[id.inner()],
         Value::Call(receiver, args) => {
-            dbg!("call", receiver, args);
-            let receiver = gen_value(ctx, builder, llvm_funcs, llvm_func, &*receiver);
+            // dbg!("call", receiver, args);
+            let receiver = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, &*receiver);
             let mut args: Vec<LLVMValueRef> = args
                 .iter()
-                .map(|v| gen_value(ctx, builder, llvm_funcs, llvm_func, v))
+                .map(|v| gen_value(ctx, builder, llvm_funcs, llvm_func, locals, v))
                 .filter(|v| !v.is_null())
                 .collect();
-            dbg!(&receiver, &args);
-            // let v = LLVMBuildCall2(
-            //     builder,
-            //     LLVMTypeOf(receiver),
-            //     receiver,
-            //     args.as_mut_ptr(),
-            //     args.len().try_into().unwrap(),
-            //     "\0".as_ptr().cast(),
-            // );
             let v = LLVMBuildCall(
                 builder,
                 receiver,
@@ -250,13 +247,6 @@ unsafe fn gen_value(
                 args.len().try_into().unwrap(),
                 "\0".as_ptr().cast(),
             );
-            extern "C" {
-                fn puts(c: *const i8);
-            }
-            let s = LLVMPrintTypeToString(LLVMTypeOf(v));
-            puts(s);
-            dbg!(LLVMTypeOf(v));
-            dbg!(LLVMTypeIsSized(LLVMTypeOf(v)));
             if LLVMTypeIsSized(LLVMTypeOf(v)) != 0 {
                 v
             } else {
@@ -264,7 +254,7 @@ unsafe fn gen_value(
             }
         }
         Value::Ret(value) => {
-            let value = gen_value(ctx, builder, llvm_funcs, llvm_func, value);
+            let value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
             if value.is_null() {
                 LLVMBuildRetVoid(builder);
             } else {
@@ -272,15 +262,16 @@ unsafe fn gen_value(
             }
             ptr::null_mut()
         }
+        Value::RetVoid(value) => {
+            gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
+            LLVMBuildRetVoid(builder);
+            ptr::null_mut()
+        }
         Value::If { cond, then, els } => {
-            let init_block = LLVMGetInsertBlock(builder);
-
-            let cond = gen_value(ctx, builder, llvm_funcs, llvm_func, cond);
+            let cond = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, cond);
 
             let mut then_block =
                 LLVMAppendBasicBlockInContext(ctx, llvm_func, b"then\0".as_ptr().cast());
-
-            // LLVMPositionBuilderAtEnd(builder, then_block);
 
             if let Some(els) = els {
                 let mut else_block = LLVMCreateBasicBlockInContext(ctx, "else\0".as_ptr().cast());
@@ -289,21 +280,13 @@ unsafe fn gen_value(
                 LLVMBuildCondBr(builder, cond, then_block, else_block);
 
                 LLVMPositionBuilderAtEnd(builder, then_block);
-                let then: Vec<LLVMValueRef> = then
-                    .iter()
-                    .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
-                    .collect();
-                let mut then_value = *then.last().unwrap();
+                let mut then_value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, then);
                 LLVMBuildBr(builder, after_block);
                 then_block = LLVMGetInsertBlock(builder);
 
                 LLVMAppendExistingBasicBlock(llvm_func, else_block);
                 LLVMPositionBuilderAtEnd(builder, else_block);
-                let els: Vec<LLVMValueRef> = els
-                    .iter()
-                    .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
-                    .collect();
-                let mut else_value = *els.last().unwrap();
+                let mut else_value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, els);
                 LLVMBuildBr(builder, after_block);
                 else_block = LLVMGetInsertBlock(builder);
 
@@ -313,30 +296,6 @@ unsafe fn gen_value(
                 LLVMAddIncoming(phi, &mut then_value, &mut then_block, 1);
                 LLVMAddIncoming(phi, &mut else_value, &mut else_block, 1);
                 phi
-
-                // todo!()
-
-                // let mut else_block =
-                //     LLVMAppendBasicBlockInContext(ctx, llvm_func, b"else\0".as_ptr().cast());
-                // LLVMPositionBuilderAtEnd(builder, else_block);
-                // let els: Vec<LLVMValueRef> = els
-                //     .iter()
-                //     .map(|value| gen_value(ctx, builder, llvm_funcs, llvm_func, value))
-                //     .collect();
-                // let mut else_value = *els.last().unwrap();
-                // LLVMPositionBuilderAtEnd(builder, init_block);
-                // LLVMBuildCondBr(builder, cond, then_block, else_block);
-                // LLVMPositionBuilderAtEnd(builder, then_block);
-                // LLVMBuildBr(builder, after_block);
-                // LLVMPositionBuilderAtEnd(builder, else_block);
-                // LLVMBuildBr(builder, after_block);
-                // LLVMPositionBuilderAtEnd(builder, after_block);
-
-                // let phi = LLVMBuildPhi(builder, LLVMTypeOf(then_value), b"merge\0".as_ptr().cast());
-                // LLVMAddIncoming(phi, &mut then_value, &mut then_block, 1);
-                // LLVMAddIncoming(phi, &mut else_value, &mut else_block, 1);
-
-                // phi
             } else {
                 todo!()
                 // let after_block = LLVMAppendBasicBlock(llvm_func, b"after\0".as_ptr().cast());
@@ -347,6 +306,18 @@ unsafe fn gen_value(
 
                 // ptr::null_mut()
             }
+        }
+        Value::Block(values) => {
+            let len = locals.len();
+
+            let values: Vec<LLVMValueRef> = values
+                .iter()
+                .map(|v| gen_value(ctx, builder, llvm_funcs, llvm_func, locals, v))
+                .collect();
+
+            locals.truncate(len);
+
+            *values.last().unwrap()
         }
     }
 }

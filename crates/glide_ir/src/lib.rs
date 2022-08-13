@@ -57,7 +57,8 @@ impl Default for Funcs {
 
 #[derive(Debug)]
 pub enum FuncBody {
-    Normal(Vec<Value>),
+    Placeholder,
+    Normal(Value),
     Print,
     PrintInt,
     Add,
@@ -111,19 +112,20 @@ impl fmt::Debug for Ty {
     }
 }
 
-#[derive(Debug)]
-pub enum Value {
+#[derive(Clone, Debug)]
+pub enum Value<Func = FuncId> {
     Void,
     ConstantInt(i64),
     ConstantString(Vec<u8>),
     Local(usize),
-    Param(usize),
-    Func(FuncId),
-    Call(Box<Value>, Vec<Value>),
-    Ret(Box<Value>),
+    Func(Func),
+    Call(Box<Self>, Vec<Self>),
+    Ret(Box<Self>),
+    RetVoid(Box<Self>),
     If {
-        cond: Box<Value>,
-        then: Vec<Value>,
-        els: Option<Vec<Value>>,
+        cond: Box<Self>,
+        then: Box<Self>,
+        els: Option<Box<Self>>,
     },
+    Block(Vec<Self>),
 }

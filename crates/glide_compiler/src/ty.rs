@@ -27,6 +27,10 @@ pub(crate) enum Ty {
 pub(crate) struct TyId(usize);
 
 impl TyId {
+    pub(crate) const VOID: Self = Self(0);
+    pub(crate) const INT: Self = Self(1);
+    pub(crate) const BOOL: Self = Self(2);
+    pub(crate) const STRING: Self = Self(3);
     pub(crate) const PLACEHOLDER: Self = Self(usize::MAX);
 }
 
@@ -36,7 +40,7 @@ pub(crate) struct Tys(Vec<Ty>);
 
 impl Tys {
     pub(crate) fn new() -> Self {
-        Self(Vec::new())
+        Self(vec![Ty::Void, Ty::Int, Ty::Bool, Ty::String])
     }
 
     pub(crate) fn add(&mut self, ty: Ty) -> TyId {

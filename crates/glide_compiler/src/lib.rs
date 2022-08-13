@@ -2,7 +2,7 @@ use std::{fmt::Write, mem};
 
 use glide_ast::{
     def::Def,
-    expr::{Call, Expr, If},
+    expr::{Block, Call, Expr, If},
     stmt::{Stmt, VarDecl},
     Ast,
 };
@@ -47,84 +47,28 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
             .insert_ty_constr("Slice".to_owned(), engine.ty_constrs.add(TyConstr::Slice))
             .unwrap();
     }
-    {
-        let params = vec![engine.tys.add(Ty::String)];
-        let ret = engine.tys.add(Ty::Void);
-        let signature = engine.tys.add(Ty::Func(params, ret));
-        let id = engine.funcs.add(Func {
-            name: "print".to_owned(),
-            ty_params: Vec::new(),
-            signature,
-            body: FuncBody::Print,
-            cur_mono: false,
-        });
-        global_namespace
-            .insert_value("print".to_owned(), ValueRef::Func(id))
-            .unwrap();
+
+    macro_rules! builtin_func {
+        ($upname:ident $name:ident ($($param:ident),*) $ret:ident) => {{
+            let params = vec![$(TyId::$param),*];
+            let signature = engine.tys.add(Ty::Func(params, TyId::$ret));
+            let id = engine.funcs.add(Func {
+                name: stringify!($name).to_owned(),
+                ty_params: Vec::new(),
+                signature,
+                body: FuncBody::$upname,
+                cur_mono: false,
+            });
+            global_namespace
+                .insert_value(stringify!($name).to_owned(), ValueRef::Func(id))
+                .unwrap();
+        }};
     }
-    {
-        let params = vec![engine.tys.add(Ty::Int)];
-        let ret = engine.tys.add(Ty::Void);
-        let signature = engine.tys.add(Ty::Func(params, ret));
-        let id = engine.funcs.add(Func {
-            name: "printInt".to_owned(),
-            ty_params: Vec::new(),
-            signature,
-            body: FuncBody::PrintInt,
-            cur_mono: false,
-        });
-        global_namespace
-            .insert_value("printInt".to_owned(), ValueRef::Func(id))
-            .unwrap();
-    }
-    {
-        let int = engine.tys.add(Ty::Int);
-        let params = vec![int, int];
-        let ret = int;
-        let signature = engine.tys.add(Ty::Func(params, ret));
-        let id = engine.funcs.add(Func {
-            name: "add".to_owned(),
-            ty_params: Vec::new(),
-            signature,
-            body: FuncBody::Add,
-            cur_mono: false,
-        });
-        global_namespace
-            .insert_value("add".to_owned(), ValueRef::Func(id))
-            .unwrap();
-    }
-    {
-        let int = engine.tys.add(Ty::Int);
-        let params = vec![int, int];
-        let ret = int;
-        let signature = engine.tys.add(Ty::Func(params, ret));
-        let id = engine.funcs.add(Func {
-            name: "sub".to_owned(),
-            ty_params: Vec::new(),
-            signature,
-            body: FuncBody::Sub,
-            cur_mono: false,
-        });
-        global_namespace
-            .insert_value("sub".to_owned(), ValueRef::Func(id))
-            .unwrap();
-    }
-    {
-        let int = engine.tys.add(Ty::Int);
-        let params = vec![int, int];
-        let ret = engine.tys.add(Ty::Bool);
-        let signature = engine.tys.add(Ty::Func(params, ret));
-        let id = engine.funcs.add(Func {
-            name: "eqInt".to_owned(),
-            ty_params: Vec::new(),
-            signature,
-            body: FuncBody::EqInt,
-            cur_mono: false,
-        });
-        global_namespace
-            .insert_value("eqInt".to_owned(), ValueRef::Func(id))
-            .unwrap();
-    }
+    builtin_func!(Print print(STRING) VOID);
+    builtin_func!(PrintInt printInt(INT) VOID);
+    builtin_func!(Add add(INT, INT) INT);
+    builtin_func!(Sub sub(INT, INT) INT);
+    builtin_func!(EqInt eqInt(INT, INT) BOOL);
 
     let mut funcs = Vec::new();
 
@@ -142,7 +86,7 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
             name: name.data().to_owned(),
             ty_params: Vec::new(),
             signature: TyId::PLACEHOLDER,
-            body: FuncBody::Normal(Vec::new()),
+            body: FuncBody::Placeholder,
             cur_mono: false,
         });
         global_namespace.insert_value(name.data().to_owned(), ValueRef::Func(func_id))?;
@@ -171,7 +115,7 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
             .enumerate()
             .map(|(idx, (name, ty))| {
                 let ty = resolve_ty(&mut engine, &func_namespace, ty)?;
-                func_namespace.insert_value(name.data().to_owned(), ValueRef::Param(idx))?;
+                func_namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
                 Ok(ty)
             })
             .collect::<Result<Vec<TyId>>>()?;
@@ -188,53 +132,33 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
         funcs_2.push((block, func_namespace, param_tys, ret_ty, func_id));
     }
 
-    for (block, mut func_namespace, param_tys, ret_ty, func_id) in funcs_2 {
-        let mut values = Vec::new();
-
-        match &block.stmts[..] {
-            [] => {
-                let void = engine.tys.add(Ty::Void);
-                engine.tys.unify(ret_ty, void)?;
-                values.push((Value::Ret(Box::new(Value::Void)), engine.tys.add(Ty::Void)));
+    for (
+        block,
+        mut func_namespace,
+        // Arguments become locals
+        mut locals,
+        ret_ty,
+        func_id,
+    ) in funcs_2
+    {
+        let (value, found_ty) =
+            compile_block(&mut engine, &mut func_namespace, &mut locals, block)?;
+        let value = match (engine.tys.is_void(ret_ty), engine.tys.is_void(found_ty)) {
+            (true, true | false) => {
+                // If the last statement was not void, do not try to make it, as it may cause
+                // incorrent inferrence.
+                Value::RetVoid(Box::new(value))
             }
-            [rest @ .., last] => {
-                for stmt in rest {
-                    compile_stmt(
-                        &mut engine,
-                        &mut func_namespace,
-                        &param_tys,
-                        &mut values,
-                        stmt,
-                    )?;
-                }
-                let last_idx = compile_stmt(
-                    &mut engine,
-                    &mut func_namespace,
-                    &param_tys,
-                    &mut values,
-                    last,
-                )?;
-                let (last_value, last_ty) = &mut values[last_idx];
-                match (engine.tys.is_void(ret_ty), engine.tys.is_void(*last_ty)) {
-                    (true, true | false) => {
-                        // If the last statement was not void, do not try to make it, as it may cause
-                        // incorrent inferrence.
-                        values.push((Value::Ret(Box::new(Value::Void)), engine.tys.add(Ty::Void)));
-                    }
-                    (false, true) => {
-                        return Err(Error::TyMismatch);
-                    }
-                    (false, false) => {
-                        engine.tys.unify(ret_ty, *last_ty)?;
-                        let value = mem::replace(last_value, Value::Void); // placeholder
-                        *last_value = Value::Ret(Box::new(value));
-                    }
-                }
+            (false, true) => {
+                return Err(Error::TyMismatch);
             }
-        }
-
+            (false, false) => {
+                engine.tys.unify(ret_ty, found_ty)?;
+                Value::Ret(Box::new(value))
+            }
+        };
         let func = engine.funcs.get_mut(func_id);
-        func.body = FuncBody::Normal(values.into_iter().map(|(value, _)| value).collect());
+        func.body = FuncBody::Normal(value);
     }
 
     // Monomorphize functions beginning with main.
@@ -299,35 +223,61 @@ fn compile_ty(engine: &Engine, ty: TyId) -> Result<glide_ir::Ty> {
     }
 }
 
+fn compile_block(
+    engine: &mut Engine,
+    namespace: &Namespace<'_>,
+    locals: &mut Vec<TyId>,
+    block: &Block<'_>,
+) -> Result<(Value, TyId)> {
+    let mut namespace = namespace.sub();
+    let previous_locals_len = locals.len();
+
+    let (values, ty) = match &block.stmts[..] {
+        [] => (vec![Value::Ret(Box::new(Value::Void))], TyId::VOID),
+        [rest @ .., last] => {
+            let mut values = Vec::new();
+            for stmt in rest {
+                let (value, ty) = compile_stmt(engine, &mut namespace, locals, stmt)?;
+                values.push(value);
+            }
+            let (last_value, last_ty) = compile_stmt(engine, &mut namespace, locals, last)?;
+            values.push(last_value);
+            (values, last_ty)
+        }
+    };
+
+    locals.truncate(previous_locals_len);
+
+    let value = Value::Block(values);
+    Ok((value, ty))
+}
+
 fn compile_stmt(
     engine: &mut Engine,
     namespace: &mut Namespace<'_>,
-    params: &[TyId],
-    values: &mut Vec<(Value, TyId)>,
+    locals: &mut Vec<TyId>,
     stmt: &Stmt<'_>,
-) -> Result<usize> {
-    let idx = values.len();
-    let (value, ty) = match stmt {
+) -> Result<(Value, TyId)> {
+    match stmt {
         Stmt::Var(VarDecl { name, ty, value }) => {
-            let (value, found_ty) = compile_expr(engine, namespace, params, values, value)?;
+            let (value, found_ty) = compile_expr(engine, namespace, locals, value)?;
             if let Some(expect_ty) = ty {
                 let expect_ty = resolve_ty(engine, namespace, expect_ty)?;
                 engine.tys.unify(expect_ty, found_ty)?;
             }
+            let idx = locals.len();
+            locals.push(found_ty);
             namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
-            (value, found_ty)
+            Ok((Value::Void, TyId::VOID))
         }
-        Stmt::Expr(expr) => compile_expr(engine, namespace, params, values, expr)?,
-    };
-    values.push((value, ty));
-    Ok(idx)
+        Stmt::Expr(expr) => compile_expr(engine, namespace, locals, expr),
+    }
 }
 
 fn compile_expr(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
-    params: &[TyId],
-    values: &[(Value, TyId)],
+    locals: &mut Vec<TyId>,
     expr: &Expr<'_>,
 ) -> Result<(Value, TyId)> {
     match expr {
@@ -344,8 +294,7 @@ fn compile_expr(
                 .get_value(name.data())
                 .ok_or(Error::UnresolvedName)?;
             match v {
-                ValueRef::Param(idx) => Ok((Value::Param(idx), params[idx])),
-                ValueRef::Local(idx) => Ok((Value::Local(idx), values[idx].1)),
+                ValueRef::Local(idx) => Ok((Value::Local(idx), locals[idx])),
                 ValueRef::Func(func) => {
                     let usage = engine.use_func(func);
                     let signature = usage.signature;
@@ -354,12 +303,11 @@ fn compile_expr(
             }
         }
         Expr::Call(Call { receiver, args }) => {
-            let (receiver_value, receiver_ty) =
-                compile_expr(engine, namespace, params, values, receiver)?;
+            let (receiver_value, receiver_ty) = compile_expr(engine, namespace, locals, receiver)?;
             let mut arg_values = Vec::new();
             let mut arg_tys = Vec::new();
             for arg in args {
-                let (value, ty) = compile_expr(engine, namespace, params, values, arg)?;
+                let (value, ty) = compile_expr(engine, namespace, locals, arg)?;
                 arg_values.push(value);
                 arg_tys.push(ty);
             }
@@ -369,37 +317,45 @@ fn compile_expr(
             Ok((Value::Call(Box::new(receiver_value), arg_values), ret_ty))
         }
         Expr::If(If { branches, els }) => {
-            let bool = engine.tys.add(Ty::Bool);
+            let mut base = None;
+            let mut cur_else = &mut base;
 
-            // if statement:
-            //    if has an else
-            //       evaluate to Void and discard values
-            //    otherwise
-            //       evaluate to Void or unify?
-            // if expression:
-            //    if has an else
-            //       error
-            //    else
-            //       unify
+            let mut tys = Vec::new();
 
-            if let Some(els) = els {
-                let (first_cond, first_value) = &branches[0];
-                let (first_cond_value, first_cond_ty) =
-                    compile_expr(engine, namespace, params, values, first_cond)?;
-                // let (first_value, first_value_ty) =
-                //     compile_expr(engine, namespace, params, values, first_value);
-
-                todo!()
-                // for (cond, value) in branches {
-                //     let (cond_value, cond_ty) =
-                //         compile_expr(engine, namespace, params, values, cond)?;
-                //     engine.tys.unify(cond_ty, bool)?;
-
-                //     // let (value, value_ty) = compile_expr(engine, namespace, params, values, value);
-                // }
-            } else {
-                todo!()
+            for (cond, block) in branches {
+                let (cond_value, cond_ty) = compile_expr(engine, namespace, locals, cond)?;
+                engine.tys.unify(cond_ty, TyId::BOOL)?;
+                let (block_value, ty) = compile_block(engine, namespace, locals, block)?;
+                tys.push(ty);
+                *cur_else = Some(Box::new(Value::If {
+                    cond: Box::new(cond_value),
+                    then: Box::new(block_value),
+                    els: None,
+                }));
+                cur_else = match &mut **cur_else.as_mut().unwrap() {
+                    glide_ir::Value::If { cond, then, els } => els,
+                    _ => unreachable!(),
+                };
             }
+
+            match els {
+                Some(block) => {
+                    let (value, ty) = compile_block(engine, namespace, locals, block)?;
+                    tys.push(ty);
+                    *cur_else = Some(Box::new(value));
+                }
+                None => todo!(),
+            }
+
+            for s in tys.windows(2) {
+                if let [l, r] = s {
+                    engine.tys.unify(*l, *r)?;
+                } else {
+                    unreachable!();
+                }
+            }
+
+            Ok((*base.unwrap(), tys[0]))
         }
     }
 }
@@ -444,18 +400,15 @@ fn monomorphize_func(
     let id = ir_funcs.add(glide_ir::Func {
         name,
         signature,
-        body: glide_ir::FuncBody::Normal(Vec::new()),
+        body: glide_ir::FuncBody::Placeholder,
     });
     funcs_compiled.insert(compiled, id);
 
     let body = engine.funcs.get(usage.func).body.clone();
     let body = match body {
-        FuncBody::Normal(values) => {
-            let ir_values = values
-                .into_iter()
-                .map(|v| lower_value(engine, ir_funcs, funcs_compiled, v))
-                .collect::<Result<Vec<glide_ir::Value>>>()?;
-            glide_ir::FuncBody::Normal(ir_values)
+        FuncBody::Placeholder => unreachable!(),
+        FuncBody::Normal(value) => {
+            glide_ir::FuncBody::Normal(lower_value(engine, ir_funcs, funcs_compiled, value)?)
         }
         FuncBody::Print => glide_ir::FuncBody::Print,
         FuncBody::PrintInt => glide_ir::FuncBody::PrintInt,
@@ -482,7 +435,6 @@ fn lower_value(
         Value::ConstantInt(value) => glide_ir::Value::ConstantInt(value),
         Value::ConstantString(data) => glide_ir::Value::ConstantString(data),
         Value::Local(idx) => glide_ir::Value::Local(idx),
-        Value::Param(idx) => glide_ir::Value::Param(idx),
         Value::Func(usage) => {
             let id = monomorphize_func(engine, ir_funcs, funcs_compiled, &usage)?;
             glide_ir::Value::Func(id)
@@ -501,5 +453,31 @@ fn lower_value(
             funcs_compiled,
             *value,
         )?)),
+        Value::RetVoid(value) => glide_ir::Value::RetVoid(Box::new(lower_value(
+            engine,
+            ir_funcs,
+            funcs_compiled,
+            *value,
+        )?)),
+        Value::If { cond, then, els } => {
+            let cond = lower_value(engine, ir_funcs, funcs_compiled, *cond)?;
+            let then = lower_value(engine, ir_funcs, funcs_compiled, *then)?;
+            let els = els
+                .map(|els| lower_value(engine, ir_funcs, funcs_compiled, *els))
+                .transpose()?
+                .map(Box::new);
+
+            glide_ir::Value::If {
+                cond: Box::new(cond),
+                then: Box::new(then),
+                els,
+            }
+        }
+        Value::Block(values) => glide_ir::Value::Block(
+            values
+                .into_iter()
+                .map(|v| lower_value(engine, ir_funcs, funcs_compiled, v))
+                .collect::<Result<Vec<glide_ir::Value>>>()?,
+        ),
     })
 }

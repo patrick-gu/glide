@@ -128,4 +128,5 @@ pub enum Value<Func = FuncId> {
         els: Option<Box<Self>>,
     },
     Block(Vec<Self>),
+    StoreVar(Box<Self>),
 }

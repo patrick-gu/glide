@@ -319,5 +319,10 @@ unsafe fn gen_value(
 
             *values.last().unwrap()
         }
+        Value::StoreVar(value) => {
+            let value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, &*value);
+            locals.push(value);
+            ptr::null_mut()
+        }
     }
 }

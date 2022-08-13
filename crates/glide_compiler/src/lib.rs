@@ -268,7 +268,7 @@ fn compile_stmt(
             let idx = locals.len();
             locals.push(found_ty);
             namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
-            Ok((Value::Void, TyId::VOID))
+            Ok((Value::StoreVar(Box::new(value)), TyId::VOID))
         }
         Stmt::Expr(expr) => compile_expr(engine, namespace, locals, expr),
     }
@@ -479,5 +479,11 @@ fn lower_value(
                 .map(|v| lower_value(engine, ir_funcs, funcs_compiled, v))
                 .collect::<Result<Vec<glide_ir::Value>>>()?,
         ),
+        Value::StoreVar(value) => glide_ir::Value::StoreVar(Box::new(lower_value(
+            engine,
+            ir_funcs,
+            funcs_compiled,
+            *value,
+        )?)),
     })
 }

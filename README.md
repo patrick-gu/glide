@@ -19,6 +19,18 @@ Currently, this includes:
 -   Basic types, including `Int`s and `String`s
 -   Functions as values
 -   Local variables
+-   [`if`/`else` expressions](./examples/if.gl)
+
+    ```
+    let x = if cond1 {
+        1
+    } else if cond2 {
+        2
+    } else {
+        3
+    }
+    ```
+
 -   Native code generation using [LLVM](https://llvm.org)
 
 ## Examples

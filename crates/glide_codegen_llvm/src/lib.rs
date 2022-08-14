@@ -3,12 +3,11 @@ use std::{ffi::CStr, marker::PhantomData};
 use llvm_sys::{
     core::{
         LLVMAddFunction, LLVMAppendBasicBlockInContext, LLVMConstInt, LLVMConstStringInContext,
-        LLVMContextCreate, LLVMContextDispose, LLVMCreateBuilderInContext,
-        LLVMCreateFunctionPassManager, LLVMDisposeBuilder, LLVMDisposeModule,
-        LLVMDisposePassManager, LLVMFunctionType, LLVMInitializeFunctionPassManager,
-        LLVMInt64TypeInContext, LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext,
-        LLVMPointerType, LLVMPositionBuilderAtEnd, LLVMPrintModuleToString,
-        LLVMRunFunctionPassManager, LLVMVoidTypeInContext,
+        LLVMContextCreate, LLVMContextDispose, LLVMCreateBuilderInContext, LLVMDisposeBuilder,
+        LLVMDisposeModule, LLVMDisposePassManager, LLVMFunctionType,
+        LLVMInitializeFunctionPassManager, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
+        LLVMModuleCreateWithNameInContext, LLVMPointerType, LLVMPositionBuilderAtEnd,
+        LLVMPrintModuleToString, LLVMRunFunctionPassManager, LLVMVoidTypeInContext,
     },
     prelude::{
         LLVMBasicBlockRef, LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMPassManagerRef,

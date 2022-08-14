@@ -134,15 +134,14 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
 
     for (
         block,
-        mut func_namespace,
+        func_namespace,
         // Arguments become locals
         mut locals,
         ret_ty,
         func_id,
     ) in funcs_2
     {
-        let (value, found_ty) =
-            compile_block(&mut engine, &mut func_namespace, &mut locals, block)?;
+        let (value, found_ty) = compile_block(&mut engine, &func_namespace, &mut locals, block)?;
         let value = match (engine.tys.is_void(ret_ty), engine.tys.is_void(found_ty)) {
             (true, true | false) => {
                 // If the last statement was not void, do not try to make it, as it may cause

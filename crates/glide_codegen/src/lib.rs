@@ -1,7 +1,4 @@
-use std::{
-    ffi::{CStr, CString},
-    ptr,
-};
+use std::{ffi::CString, ptr};
 
 use glide_codegen_llvm::llvm::{
     core::{

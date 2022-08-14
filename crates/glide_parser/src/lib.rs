@@ -341,10 +341,10 @@ fn var_literal<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
     if let Some(integer) = lexer.next_as(TokenKind::Integer)? {
         return Ok(Expr::Integer(integer));
     }
-    if let Some(_) = lexer.next_as(TokenKind::KwTrue)? {
+    if let Some(_true) = lexer.next_as(TokenKind::KwTrue)? {
         return Ok(Expr::True);
     }
-    if let Some(_) = lexer.next_as(TokenKind::KwFalse)? {
+    if let Some(_false) = lexer.next_as(TokenKind::KwFalse)? {
         return Ok(Expr::False);
     }
     if lexer.next_as(TokenKind::Quote)?.is_some() {

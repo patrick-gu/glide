@@ -6,7 +6,7 @@ Currently, this includes:
 
 -   Static typing
 -   Generics, with monomorphization
--   Type inference on function calls
+-   [Type inference on function calls](./examples/identity.gl)
 
     ```
     func identity<T>(t T) T {
@@ -17,8 +17,26 @@ Currently, this includes:
     ```
 
 -   Basic types, including `Int`s, `Bool`s, and `String`s
--   Functions as values
+-   [Functions, usable as values](./examples/functions.gl)
+
+    ```
+    func a() {
+        print("a")
+    }
+
+    func main() {
+        let f = a
+        f()
+    }
+    ```
+
 -   Local variables
+
+    ```
+    let x = 2
+    let y Int = 3
+    ```
+
 -   [`if`/`else` expressions](./examples/if.gl)
 
     ```

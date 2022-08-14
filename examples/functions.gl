@@ -1,0 +1,8 @@
+func a() {
+    print("a")
+}
+
+func main() {
+    let f = a
+    f()
+}

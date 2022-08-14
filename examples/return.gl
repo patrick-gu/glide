@@ -1,0 +1,9 @@
+func returns_1() Int {
+    // Return early from the function
+    return 1
+    2
+}
+
+func main() {
+    printInt(returns_1())
+}

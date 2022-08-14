@@ -141,7 +141,8 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
         func_id,
     ) in funcs_2
     {
-        let (value, found_ty) = compile_block(&mut engine, &func_namespace, &mut locals, block)?;
+        let (value, found_ty) =
+            compile_block(&mut engine, &func_namespace, &mut locals, ret_ty, block)?;
         let value = match (engine.tys.is_void(ret_ty), engine.tys.is_void(found_ty)) {
             (true, true | false) => {
                 // If the last statement was not void, do not try to make it, as it may cause
@@ -226,6 +227,7 @@ fn compile_block(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
     locals: &mut Vec<TyId>,
+    return_ty: TyId,
     block: &Block<'_>,
 ) -> Result<(Value, TyId)> {
     let mut namespace = namespace.sub();
@@ -236,10 +238,11 @@ fn compile_block(
         [rest @ .., last] => {
             let mut values = Vec::new();
             for stmt in rest {
-                let (value, ty) = compile_stmt(engine, &mut namespace, locals, stmt)?;
+                let (value, ty) = compile_stmt(engine, &mut namespace, locals, return_ty, stmt)?;
                 values.push(value);
             }
-            let (last_value, last_ty) = compile_stmt(engine, &mut namespace, locals, last)?;
+            let (last_value, last_ty) =
+                compile_stmt(engine, &mut namespace, locals, return_ty, last)?;
             values.push(last_value);
             (values, last_ty)
         }
@@ -255,11 +258,12 @@ fn compile_stmt(
     engine: &mut Engine,
     namespace: &mut Namespace<'_>,
     locals: &mut Vec<TyId>,
+    return_ty: TyId,
     stmt: &Stmt<'_>,
 ) -> Result<(Value, TyId)> {
     match stmt {
         Stmt::Var(VarDecl { name, ty, value }) => {
-            let (value, found_ty) = compile_expr(engine, namespace, locals, value)?;
+            let (value, found_ty) = compile_expr(engine, namespace, locals, return_ty, value)?;
             if let Some(expect_ty) = ty {
                 let expect_ty = resolve_ty(engine, namespace, expect_ty)?;
                 engine.tys.unify(expect_ty, found_ty)?;
@@ -269,7 +273,12 @@ fn compile_stmt(
             namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
             Ok((Value::StoreVar(Box::new(value)), TyId::VOID))
         }
-        Stmt::Expr(expr) => compile_expr(engine, namespace, locals, expr),
+        Stmt::Expr(expr) => compile_expr(engine, namespace, locals, return_ty, expr),
+        Stmt::Return(expr) => {
+            let (value, ty) = compile_expr(engine, namespace, locals, return_ty, expr)?;
+            engine.tys.unify(return_ty, ty)?;
+            Ok((Value::Ret(Box::new(value)), TyId::VOID))
+        }
     }
 }
 
@@ -277,6 +286,7 @@ fn compile_expr(
     engine: &mut Engine,
     namespace: &Namespace<'_>,
     locals: &mut Vec<TyId>,
+    return_ty: TyId,
     expr: &Expr<'_>,
 ) -> Result<(Value, TyId)> {
     match expr {
@@ -302,11 +312,12 @@ fn compile_expr(
             }
         }
         Expr::Call(Call { receiver, args }) => {
-            let (receiver_value, receiver_ty) = compile_expr(engine, namespace, locals, receiver)?;
+            let (receiver_value, receiver_ty) =
+                compile_expr(engine, namespace, locals, return_ty, receiver)?;
             let mut arg_values = Vec::new();
             let mut arg_tys = Vec::new();
             for arg in args {
-                let (value, ty) = compile_expr(engine, namespace, locals, arg)?;
+                let (value, ty) = compile_expr(engine, namespace, locals, return_ty, arg)?;
                 arg_values.push(value);
                 arg_tys.push(ty);
             }
@@ -322,9 +333,10 @@ fn compile_expr(
             let mut tys = Vec::new();
 
             for (cond, block) in branches {
-                let (cond_value, cond_ty) = compile_expr(engine, namespace, locals, cond)?;
+                let (cond_value, cond_ty) =
+                    compile_expr(engine, namespace, locals, return_ty, cond)?;
                 engine.tys.unify(cond_ty, TyId::BOOL)?;
-                let (block_value, ty) = compile_block(engine, namespace, locals, block)?;
+                let (block_value, ty) = compile_block(engine, namespace, locals, return_ty, block)?;
                 tys.push(ty);
                 *cur_else = Some(Box::new(Value::If {
                     cond: Box::new(cond_value),
@@ -339,7 +351,7 @@ fn compile_expr(
 
             match els {
                 Some(block) => {
-                    let (value, ty) = compile_block(engine, namespace, locals, block)?;
+                    let (value, ty) = compile_block(engine, namespace, locals, return_ty, block)?;
                     tys.push(ty);
                     *cur_else = Some(Box::new(value));
                 }

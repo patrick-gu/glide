@@ -5,7 +5,7 @@ use crate::{expr::Expr, ty::Ty};
 #[derive(Debug)]
 pub enum Stmt<'a> {
     Var(VarDecl<'a>),
-
+    Return(Expr<'a>),
     Expr(Expr<'a>),
 }
 

@@ -62,6 +62,7 @@ token_kinds!(
     KwFunc => "func",
     KwIf => "if",
     KwLet => "let",
+    KwReturn => "return",
     KwTrue => "true",
 );
 
@@ -297,6 +298,10 @@ fn stmt<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Stmt<'a>> {
         };
         let value = expr(lexer)?;
         return Ok(Stmt::Var(VarDecl { name, ty, value }));
+    }
+    if lexer.next_as(TokenKind::KwReturn)?.is_some() {
+        let expr = expr(lexer)?;
+        return Ok(Stmt::Return(expr));
     }
     Ok(Stmt::Expr(expr(lexer)?))
 }

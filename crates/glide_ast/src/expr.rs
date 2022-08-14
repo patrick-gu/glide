@@ -9,6 +9,8 @@ pub enum Expr<'a> {
     Var(Span<'a>),
     Call(Call<'a>),
     If(If<'a>),
+    True,
+    False,
 }
 
 #[derive(Debug)]

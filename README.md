@@ -16,7 +16,7 @@ Currently, this includes:
     identity("Foo")
     ```
 
--   Basic types, including `Int`s and `String`s
+-   Basic types, including `Int`s, `Bool`s, and `String`s
 -   Functions as values
 -   Local variables
 -   [`if`/`else` expressions](./examples/if.gl)

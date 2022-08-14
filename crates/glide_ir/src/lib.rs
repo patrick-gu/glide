@@ -115,6 +115,8 @@ impl fmt::Debug for Ty {
 #[derive(Clone, Debug)]
 pub enum Value<Func = FuncId> {
     Void,
+    True,
+    False,
     ConstantInt(i64),
     ConstantString(Vec<u8>),
     Local(usize),

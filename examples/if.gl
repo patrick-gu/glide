@@ -1,6 +1,6 @@
 func main() {
-    let cond1 = eqInt(1, 1)
-    let cond2 = eqInt(1, 2)
+    let cond1 = true
+    let cond2 = false
     let x = if cond1 {
         1
     } else if cond2 {

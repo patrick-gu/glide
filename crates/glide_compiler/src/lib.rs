@@ -357,6 +357,8 @@ fn compile_expr(
 
             Ok((*base.unwrap(), tys[0]))
         }
+        Expr::True => Ok((Value::True, TyId::BOOL)),
+        Expr::False => Ok((Value::False, TyId::BOOL)),
     }
 }
 
@@ -432,6 +434,8 @@ fn lower_value(
 ) -> Result<glide_ir::Value> {
     Ok(match value {
         Value::Void => glide_ir::Value::Void,
+        Value::True => glide_ir::Value::True,
+        Value::False => glide_ir::Value::False,
         Value::ConstantInt(value) => glide_ir::Value::ConstantInt(value),
         Value::ConstantString(data) => glide_ir::Value::ConstantString(data),
         Value::Local(idx) => glide_ir::Value::Local(idx),

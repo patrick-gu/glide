@@ -222,6 +222,14 @@ unsafe fn gen_value(
 ) -> LLVMValueRef {
     match value {
         Value::Void => ptr::null_mut(),
+        Value::True => {
+            let int1 = LLVMInt1TypeInContext(ctx);
+            LLVMConstInt(int1, 1, 0)
+        }
+        Value::False => {
+            let int1 = LLVMInt1TypeInContext(ctx);
+            LLVMConstInt(int1, 0, 0)
+        }
         Value::ConstantInt(value) => {
             let int64 = LLVMInt64TypeInContext(ctx);
             LLVMConstInt(int64, *value as u64, 0)

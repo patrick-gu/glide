@@ -6,13 +6,14 @@ use glide_codegen_llvm::llvm::{
         LLVMAddFunction, LLVMAddIncoming, LLVMAppendBasicBlock, LLVMAppendBasicBlockInContext,
         LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall2, LLVMBuildCondBr,
         LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet, LLVMBuildSub,
-        LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate, LLVMContextDispose,
-        LLVMCreateBasicBlockInContext, LLVMCreateBuilderInContext, LLVMDisposeBuilder,
-        LLVMDisposeMessage, LLVMDisposeModule, LLVMFunctionType, LLVMGetElementType,
-        LLVMGetInsertBlock, LLVMGetParam, LLVMGetReturnType, LLVMInt1TypeInContext,
-        LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
-        LLVMModuleCreateWithNameInContext, LLVMPointerType, LLVMPositionBuilderAtEnd,
-        LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext, LLVMTypeOf,
+        LLVMBuildUnreachable, LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate,
+        LLVMContextDispose, LLVMCreateBasicBlockInContext, LLVMCreateBuilderInContext,
+        LLVMDisposeBuilder, LLVMDisposeMessage, LLVMDisposeModule, LLVMFunctionType,
+        LLVMGetElementType, LLVMGetInsertBlock, LLVMGetParam, LLVMGetReturnType,
+        LLVMInt1TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
+        LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerType,
+        LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext,
+        LLVMTypeOf,
     },
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
     LLVMIntPredicate, LLVMLinkage,
@@ -91,6 +92,8 @@ unsafe fn gen_func(
             LLVMPositionBuilderAtEnd(builder, basic_block);
 
             gen_value(ctx, builder, llvm_funcs, llvm_func, &mut locals, value);
+
+            LLVMBuildUnreachable(builder);
         }
         FuncBody::Print => {
             let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
@@ -255,11 +258,17 @@ unsafe fn gen_value(
         Value::Ret(value) => {
             let value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
             LLVMBuildRet(builder, value);
+            let block =
+                LLVMAppendBasicBlockInContext(ctx, llvm_func, b"after_return\0".as_ptr().cast());
+            LLVMPositionBuilderAtEnd(builder, block);
             empty_struct_value(ctx)
         }
         Value::RetVoid(value) => {
             gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
             LLVMBuildRet(builder, empty_struct_value(ctx));
+            let block =
+                LLVMAppendBasicBlockInContext(ctx, llvm_func, b"after_return\0".as_ptr().cast());
+            LLVMPositionBuilderAtEnd(builder, block);
             empty_struct_value(ctx)
         }
         Value::If { cond, then, els } => {

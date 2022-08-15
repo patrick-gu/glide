@@ -1,16 +1,16 @@
-use std::{ffi::CString, ptr};
+use std::ffi::CString;
 
 use glide_codegen_llvm::llvm::{
     core::{
         LLVMAddFunction, LLVMAddIncoming, LLVMAppendBasicBlock, LLVMAppendBasicBlockInContext,
-        LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall, LLVMBuildCall2,
-        LLVMBuildCondBr, LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet,
-        LLVMBuildRetVoid, LLVMBuildSub, LLVMConstInt, LLVMContextCreate,
-        LLVMCreateBasicBlockInContext, LLVMCreateBuilder, LLVMFunctionType, LLVMGetAsString,
-        LLVMGetInsertBlock, LLVMGetParam, LLVMInt1TypeInContext, LLVMInt32TypeInContext,
-        LLVMInt64TypeInContext, LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext,
-        LLVMPointerType, LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMPrintTypeToString,
-        LLVMSetLinkage, LLVMTypeIsSized, LLVMTypeOf, LLVMVoidTypeInContext,
+        LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall2, LLVMBuildCondBr,
+        LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet, LLVMBuildSub,
+        LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate, LLVMCreateBasicBlockInContext,
+        LLVMCreateBuilder, LLVMFunctionType, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetParam,
+        LLVMGetReturnType, LLVMInt1TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
+        LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerType,
+        LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext,
+        LLVMTypeOf,
     },
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
     LLVMIntPredicate, LLVMLinkage,
@@ -27,7 +27,7 @@ pub fn codegen(ir: &Ir) {
 
         for func in ir.funcs.inner() {
             let name = CString::new(func.name.as_bytes()).unwrap();
-            let ty = gen_ty(ctx, &func.signature);
+            let ty = LLVMGetElementType(gen_ty(ctx, &func.signature));
             let llvm_func = LLVMAddFunction(module, name.as_ptr().cast(), ty);
             llvm_funcs.push(llvm_func);
         }
@@ -93,7 +93,7 @@ unsafe fn gen_func(
             let (puts, puts_ty) = {
                 let ty =
                     glide_ir::Ty::Func(vec![glide_ir::Ty::String], Box::new(glide_ir::Ty::Void));
-                let ty = gen_ty(ctx, &ty);
+                let ty = LLVMGetElementType(gen_ty(ctx, &ty));
                 let f = LLVMAddFunction(module, "puts\0".as_ptr().cast(), ty);
                 LLVMSetLinkage(f, LLVMLinkage::LLVMExternalLinkage);
                 (f, ty)
@@ -101,7 +101,7 @@ unsafe fn gen_func(
 
             LLVMBuildCall2(builder, puts_ty, puts, &mut s, 1, "\0".as_ptr().cast());
 
-            LLVMBuildRetVoid(builder);
+            LLVMBuildRet(builder, empty_struct_value(ctx));
         }
         FuncBody::PrintInt => {
             let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
@@ -135,7 +135,7 @@ unsafe fn gen_func(
                 "\0".as_ptr().cast(),
             );
 
-            LLVMBuildRetVoid(builder);
+            LLVMBuildRet(builder, empty_struct_value(ctx));
         }
         FuncBody::Add => {
             let basic_block = LLVMAppendBasicBlock(llvm_func, b"entry\0".as_ptr().cast());
@@ -178,7 +178,7 @@ unsafe fn gen_func(
 
 unsafe fn gen_ty(ctx: LLVMContextRef, ty: &glide_ir::Ty) -> LLVMTypeRef {
     match ty {
-        glide_ir::Ty::Void => LLVMVoidTypeInContext(ctx),
+        glide_ir::Ty::Void => empty_struct_type(ctx),
         glide_ir::Ty::Int => LLVMInt64TypeInContext(ctx),
         glide_ir::Ty::Bool => LLVMInt1TypeInContext(ctx),
         glide_ir::Ty::String => {
@@ -187,25 +187,16 @@ unsafe fn gen_ty(ctx: LLVMContextRef, ty: &glide_ir::Ty) -> LLVMTypeRef {
         }
         glide_ir::Ty::Slice(inner) => todo!(),
         glide_ir::Ty::Func(params, ret) => {
-            let mut params: Vec<LLVMTypeRef> = params
-                .iter()
-                .filter_map(|ty| gen_ty_if_not_empty(ctx, ty))
-                .collect();
+            let mut params: Vec<LLVMTypeRef> = params.iter().map(|ty| gen_ty(ctx, ty)).collect();
             let ret = gen_ty(ctx, ret);
-            LLVMFunctionType(
+            let function = LLVMFunctionType(
                 ret,
                 params.as_mut_ptr(),
                 params.len().try_into().unwrap(),
                 0,
-            )
+            );
+            LLVMPointerType(function, 0)
         }
-    }
-}
-
-unsafe fn gen_ty_if_not_empty(ctx: LLVMContextRef, ty: &glide_ir::Ty) -> Option<LLVMTypeRef> {
-    match ty {
-        glide_ir::Ty::Void => None,
-        ty => Some(gen_ty(ctx, ty)),
     }
 }
 
@@ -218,7 +209,7 @@ unsafe fn gen_value(
     value: &Value,
 ) -> LLVMValueRef {
     match value {
-        Value::Void => ptr::null_mut(),
+        Value::Void => empty_struct_value(ctx),
         Value::True => {
             let int1 = LLVMInt1TypeInContext(ctx);
             LLVMConstInt(int1, 1, 0)
@@ -238,39 +229,30 @@ unsafe fn gen_value(
         Value::Local(idx) => locals[*idx],
         Value::Func(id) => llvm_funcs[id.inner()],
         Value::Call(receiver, args) => {
-            // dbg!("call", receiver, args);
             let receiver = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, &*receiver);
             let mut args: Vec<LLVMValueRef> = args
                 .iter()
                 .map(|v| gen_value(ctx, builder, llvm_funcs, llvm_func, locals, v))
-                .filter(|v| !v.is_null())
                 .collect();
-            let v = LLVMBuildCall(
+            let return_type = LLVMGetReturnType(LLVMTypeOf(receiver));
+            LLVMBuildCall2(
                 builder,
+                return_type,
                 receiver,
                 args.as_mut_ptr(),
                 args.len().try_into().unwrap(),
                 "\0".as_ptr().cast(),
-            );
-            if LLVMTypeIsSized(LLVMTypeOf(v)) != 0 {
-                v
-            } else {
-                ptr::null_mut()
-            }
+            )
         }
         Value::Ret(value) => {
             let value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
-            if value.is_null() {
-                LLVMBuildRetVoid(builder);
-            } else {
-                LLVMBuildRet(builder, value);
-            }
-            ptr::null_mut()
+            LLVMBuildRet(builder, value);
+            empty_struct_value(ctx)
         }
         Value::RetVoid(value) => {
             gen_value(ctx, builder, llvm_funcs, llvm_func, locals, value);
-            LLVMBuildRetVoid(builder);
-            ptr::null_mut()
+            LLVMBuildRet(builder, empty_struct_value(ctx));
+            empty_struct_value(ctx)
         }
         Value::If { cond, then, els } => {
             let cond = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, cond);
@@ -327,7 +309,17 @@ unsafe fn gen_value(
         Value::StoreVar(value) => {
             let value = gen_value(ctx, builder, llvm_funcs, llvm_func, locals, &*value);
             locals.push(value);
-            ptr::null_mut()
+            empty_struct_value(ctx)
         }
     }
+}
+
+unsafe fn empty_struct_type(ctx: LLVMContextRef) -> LLVMTypeRef {
+    let mut types: [LLVMTypeRef; 0] = [];
+    LLVMStructTypeInContext(ctx, (&mut types).as_mut_ptr().cast(), 0, 0)
+}
+
+unsafe fn empty_struct_value(ctx: LLVMContextRef) -> LLVMValueRef {
+    let mut values: [LLVMValueRef; 0] = [];
+    LLVMConstStructInContext(ctx, (&mut values).as_mut_ptr().cast(), 0, 0)
 }

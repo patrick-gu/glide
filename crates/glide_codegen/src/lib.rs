@@ -6,8 +6,9 @@ use glide_codegen_llvm::llvm::{
         LLVMAddFunction, LLVMAddIncoming, LLVMAppendBasicBlock, LLVMAppendBasicBlockInContext,
         LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall2, LLVMBuildCondBr,
         LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet, LLVMBuildSub,
-        LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate, LLVMCreateBasicBlockInContext,
-        LLVMCreateBuilderInContext, LLVMDisposeMessage, LLVMFunctionType, LLVMGetElementType,
+        LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate, LLVMContextDispose,
+        LLVMCreateBasicBlockInContext, LLVMCreateBuilderInContext, LLVMDisposeBuilder,
+        LLVMDisposeMessage, LLVMDisposeModule, LLVMFunctionType, LLVMGetElementType,
         LLVMGetInsertBlock, LLVMGetParam, LLVMGetReturnType, LLVMInt1TypeInContext,
         LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
         LLVMModuleCreateWithNameInContext, LLVMPointerType, LLVMPositionBuilderAtEnd,
@@ -32,11 +33,11 @@ pub fn codegen(ir: &Ir) {
             let llvm_func = LLVMAddFunction(module, name.as_ptr().cast(), ty);
             llvm_funcs.push(llvm_func);
         }
+        let builder = LLVMCreateBuilderInContext(ctx);
         for (ir_func, &llvm_func) in ir.funcs.inner().iter().zip(llvm_funcs.iter()) {
-            // dbg!(&ir_func.name);
-            let builder = LLVMCreateBuilderInContext(ctx);
             gen_func(ctx, module, builder, &llvm_funcs, llvm_func, ir_func);
         }
+        LLVMDisposeBuilder(builder);
 
         let mut msg = ptr::null_mut();
         let invalid = LLVMVerifyModule(
@@ -61,8 +62,8 @@ pub fn codegen(ir: &Ir) {
             puts(s);
         }
 
-        // LLVMDisposeModule(module);
-        // LLVMContextDispose(ctx);
+        LLVMDisposeModule(module);
+        LLVMContextDispose(ctx);
     }
 }
 

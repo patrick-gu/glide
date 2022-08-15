@@ -1,16 +1,17 @@
-use std::ffi::CString;
+use std::{ffi::CString, ptr};
 
 use glide_codegen_llvm::llvm::{
+    analysis::{LLVMVerifierFailureAction, LLVMVerifyModule},
     core::{
         LLVMAddFunction, LLVMAddIncoming, LLVMAppendBasicBlock, LLVMAppendBasicBlockInContext,
         LLVMAppendExistingBasicBlock, LLVMBuildAdd, LLVMBuildBr, LLVMBuildCall2, LLVMBuildCondBr,
         LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet, LLVMBuildSub,
         LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate, LLVMCreateBasicBlockInContext,
-        LLVMCreateBuilder, LLVMFunctionType, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetParam,
-        LLVMGetReturnType, LLVMInt1TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
-        LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerType,
-        LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext,
-        LLVMTypeOf,
+        LLVMCreateBuilderInContext, LLVMDisposeMessage, LLVMFunctionType, LLVMGetElementType,
+        LLVMGetInsertBlock, LLVMGetParam, LLVMGetReturnType, LLVMInt1TypeInContext,
+        LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
+        LLVMModuleCreateWithNameInContext, LLVMPointerType, LLVMPositionBuilderAtEnd,
+        LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext, LLVMTypeOf,
     },
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
     LLVMIntPredicate, LLVMLinkage,
@@ -33,18 +34,24 @@ pub fn codegen(ir: &Ir) {
         }
         for (ir_func, &llvm_func) in ir.funcs.inner().iter().zip(llvm_funcs.iter()) {
             // dbg!(&ir_func.name);
-            let builder = LLVMCreateBuilder();
+            let builder = LLVMCreateBuilderInContext(ctx);
             gen_func(ctx, module, builder, &llvm_funcs, llvm_func, ir_func);
         }
 
-        // let invalid = LLVMVerifyModule(
-        //     module,
-        //     LLVMVerifierFailureAction::LLVMPrintMessageAction,
-        //     ptr::null_mut(),
-        // ) != 0;
-        // if invalid {
-        //     panic!()
-        // }
+        let mut msg = ptr::null_mut();
+        let invalid = LLVMVerifyModule(
+            module,
+            LLVMVerifierFailureAction::LLVMPrintMessageAction,
+            &mut msg,
+        ) != 0;
+        if invalid {
+            // extern "C" {
+            //     fn puts(ptr: *const i8);
+            // }
+            // puts(msg);
+            LLVMDisposeMessage(msg);
+            panic!();
+        }
 
         {
             let s = LLVMPrintModuleToString(module);

@@ -234,7 +234,7 @@ fn compile_block(
     let previous_locals_len = locals.len();
 
     let (values, ty) = match &block.stmts[..] {
-        [] => (vec![Value::Ret(Box::new(Value::Void))], TyId::VOID),
+        [] => (vec![Value::Void], TyId::VOID),
         [rest @ .., last] => {
             let mut values = Vec::new();
             for stmt in rest {

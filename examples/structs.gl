@@ -1,0 +1,13 @@
+struct Example<T> {
+    x Int,
+    y T,
+    z String,
+}
+
+struct Empty {
+
+}
+
+func main() {
+
+}

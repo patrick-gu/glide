@@ -1,7 +1,7 @@
 use std::{fmt::Write, mem};
 
 use glide_ast::{
-    def::Def,
+    def::{Def, DefKind, Field},
     expr::{Block, Call, Expr, If},
     stmt::{Stmt, VarDecl},
     Ast,
@@ -18,6 +18,7 @@ use self::{
     value::{Value, ValueRef},
 };
 
+mod attribute;
 mod engine;
 pub mod error;
 mod func;
@@ -74,24 +75,38 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
 
     // Register names in the global namespace first.
     for def in &ast.defs {
-        let Def::Func(glide_ast::def::Func {
-            name,
-            generics,
-            params,
-            ret,
-            block,
-        }) = def;
+        match &def.kind {
+            DefKind::Func(glide_ast::def::Func {
+                name,
+                generics,
+                params,
+                ret,
+                block,
+            }) => {
+                let func_id = engine.funcs.add(Func {
+                    name: name.data().to_owned(),
+                    ty_params: Vec::new(),
+                    signature: TyId::PLACEHOLDER,
+                    body: FuncBody::Placeholder,
+                    cur_mono: false,
+                });
+                global_namespace.insert_value(name.data().to_owned(), ValueRef::Func(func_id))?;
 
-        let func_id = engine.funcs.add(Func {
-            name: name.data().to_owned(),
-            ty_params: Vec::new(),
-            signature: TyId::PLACEHOLDER,
-            body: FuncBody::Placeholder,
-            cur_mono: false,
-        });
-        global_namespace.insert_value(name.data().to_owned(), ValueRef::Func(func_id))?;
-
-        funcs.push((func_id, generics, params, ret, block));
+                funcs.push((func_id, generics, params, ret, block));
+            }
+            DefKind::Attribute(glide_ast::def::AttributeDef { name }) => {
+                // global_namespace.insert_value(name, value)
+                // todo!()
+            }
+            DefKind::Struct(glide_ast::def::Struct {
+                name,
+                generics,
+                fields,
+            }) => {
+                // global_namespace.insert_ty_constr(name, id)
+                // todo!()
+            }
+        }
     }
 
     let mut funcs_2 = Vec::new();
@@ -113,7 +128,7 @@ pub fn compile(ast: &Ast<'_>) -> Result<Ir> {
         let param_tys: Vec<TyId> = params
             .iter()
             .enumerate()
-            .map(|(idx, (name, ty))| {
+            .map(|(idx, Field { name, ty })| {
                 let ty = resolve_ty(&mut engine, &func_namespace, ty)?;
                 func_namespace.insert_value(name.data().to_owned(), ValueRef::Local(idx))?;
                 Ok(ty)

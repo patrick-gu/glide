@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    attribute::AttributeId,
     error::{Error, Result},
     ty_constr::TyConstrId,
     value::ValueRef,
@@ -10,6 +11,7 @@ pub(crate) struct Namespace<'a> {
     previous: Option<&'a Namespace<'a>>,
     ty_constrs: HashMap<String, TyConstrId>,
     values: HashMap<String, ValueRef>,
+    attributes: HashMap<String, AttributeId>,
 }
 
 impl<'a> Namespace<'a> {
@@ -18,6 +20,7 @@ impl<'a> Namespace<'a> {
             previous: None,
             ty_constrs: HashMap::new(),
             values: HashMap::new(),
+            attributes: HashMap::new(),
         }
     }
 
@@ -26,6 +29,7 @@ impl<'a> Namespace<'a> {
             previous: Some(self),
             ty_constrs: HashMap::new(),
             values: HashMap::new(),
+            attributes: HashMap::new(),
         }
     }
 
@@ -67,31 +71,22 @@ impl<'a> Namespace<'a> {
         self.previous.and_then(|p| p.get_value(name))
     }
 
-    pub(crate) fn detach(self) -> Namespace<'static> {
-        let Self {
-            previous: _,
-            ty_constrs,
-            values,
-        } = self;
-        Namespace {
-            previous: None,
-            ty_constrs,
-            values,
+    pub(crate) fn insert_attribute(&mut self, name: String, value: AttributeId) -> Result<()> {
+        if self.get_attribute(&name).is_some() {
+            return Err(Error::Shadow);
         }
+        self.attributes.insert(name, value);
+        Ok(())
     }
-}
 
-impl Namespace<'static> {
-    pub(crate) fn attach<'a>(self, previous: &'a Namespace<'a>) -> Namespace<'a> {
-        let Self {
-            previous: _,
-            ty_constrs,
-            values,
-        } = self;
-        Namespace {
-            previous: Some(previous),
-            ty_constrs,
-            values,
-        }
+    pub(crate) fn get_attribute(&self, name: &str) -> Option<AttributeId> {
+        self.attributes
+            .get(name)
+            .copied()
+            .or_else(|| self.get_attribute_deep(name))
+    }
+
+    fn get_attribute_deep(&self, name: &str) -> Option<AttributeId> {
+        self.previous.and_then(|p| p.get_attribute(name))
     }
 }

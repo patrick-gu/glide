@@ -1,0 +1,37 @@
+[Happy]
+attribute Happy
+
+[Sad]
+attribute Sad
+
+attribute Other
+
+[Happy]
+func happy() {
+
+}
+
+[Sad]
+func sad() {
+
+}
+
+[Happy]
+[Sad]
+func happyAndSad() {
+
+}
+
+func notHappyOrSad() {
+
+}
+
+[Happy]
+[Sad]
+struct HappyAndSad {
+
+}
+
+func main() {
+
+}

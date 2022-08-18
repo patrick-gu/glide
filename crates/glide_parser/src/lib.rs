@@ -1,7 +1,7 @@
 use std::result;
 
 use glide_ast::{
-    def::{Def, Func},
+    def::{AttributeDef, AttributeUsage, Def, DefKind, Field, Func, Struct},
     expr::{Block, Call, Expr, If},
     stmt::{Stmt, VarDecl},
     ty::Ty,
@@ -43,6 +43,8 @@ token_kinds!(
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     LessThan,
     GreaterThan,
     Quote,
@@ -56,6 +58,7 @@ token_kinds!(
 
     -
 
+    KwAttribute => "attribute",
     KwElse => "else",
     KwFalse => "false",
     KwFor => "for",
@@ -63,6 +66,7 @@ token_kinds!(
     KwIf => "if",
     KwLet => "let",
     KwReturn => "return",
+    KwStruct => "struct",
     KwTrue => "true",
 );
 
@@ -163,6 +167,8 @@ impl<'a> Lexer<'a> {
                 b')' => TokenKind::RParen,
                 b'{' => TokenKind::LBrace,
                 b'}' => TokenKind::RBrace,
+                b'[' => TokenKind::LBracket,
+                b']' => TokenKind::RBracket,
                 b'<' => TokenKind::LessThan,
                 b'>' => TokenKind::GreaterThan,
                 b'"' => TokenKind::Quote,
@@ -218,33 +224,18 @@ pub fn parse(source: &Source) -> Result<'_, Ast<'_>> {
 }
 
 fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
+    let mut attributes = Vec::new();
+
+    while lexer.next_as(TokenKind::LBracket)?.is_some() {
+        let name = lexer.expect_as(TokenKind::Ident)?;
+        let _ = lexer.expect_as(TokenKind::RBracket)?;
+        attributes.push(AttributeUsage { name });
+    }
+
     if lexer.next_as(TokenKind::KwFunc)?.is_some() {
         let name = lexer.expect_as(TokenKind::Ident)?;
-
-        let generics = match lexer.next_as(TokenKind::LessThan)? {
-            Some(_) => {
-                list1(
-                    lexer,
-                    |lexer| lexer.expect_as(TokenKind::Ident),
-                    TokenKind::GreaterThan,
-                )?
-                .0
-            }
-            None => Vec::new(),
-        };
-
-        let _ = lexer.expect_as(TokenKind::LParen)?;
-
-        let (params, _) = list(
-            lexer,
-            |lexer| {
-                let name = lexer.expect_as(TokenKind::Ident)?;
-                let ty = ty(lexer)?;
-                Ok((name, ty))
-            },
-            TokenKind::RParen,
-        )?;
-
+        let generics = generics(lexer)?;
+        let params = fields(lexer, TokenKind::LParen, TokenKind::RParen)?;
         let (ret, _) = match lexer.next_as(TokenKind::LBrace)? {
             Some(l_brace) => (None, l_brace),
             None => {
@@ -253,22 +244,79 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
                 (Some(ret), l_brace)
             }
         };
-
         let block = block_after_l_paren(lexer)?;
 
-        return Ok(Some(Def::Func(Func {
-            name,
-            generics,
-            params,
-            ret,
-            block,
-        })));
+        return Ok(Some(Def {
+            attributes,
+            kind: DefKind::Func(Func {
+                name,
+                generics,
+                params,
+                ret,
+                block,
+            }),
+        }));
     }
+
+    if lexer.next_as(TokenKind::KwAttribute)?.is_some() {
+        let name = lexer.expect_as(TokenKind::Ident)?;
+
+        return Ok(Some(Def {
+            attributes,
+            kind: DefKind::Attribute(AttributeDef { name }),
+        }));
+    }
+
+    if lexer.next_as(TokenKind::KwStruct)?.is_some() {
+        let name = lexer.expect_as(TokenKind::Ident)?;
+        let generics = generics(lexer)?;
+        let fields = fields(lexer, TokenKind::LBrace, TokenKind::RBrace)?;
+
+        return Ok(Some(Def {
+            attributes,
+            kind: DefKind::Struct(Struct {
+                name,
+                generics,
+                fields,
+            }),
+        }));
+    }
+
     if let Some(token) = lexer.next()? {
         Err(Error::UnexpectedToken(token))
     } else {
         Ok(None)
     }
+}
+
+fn generics<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Vec<Span<'a>>> {
+    match lexer.next_as(TokenKind::LessThan)? {
+        Some(_) => Ok(list1(
+            lexer,
+            |lexer| lexer.expect_as(TokenKind::Ident),
+            TokenKind::GreaterThan,
+        )?
+        .0),
+        None => Ok(Vec::new()),
+    }
+}
+
+fn fields<'a>(
+    lexer: &mut Lexer<'a>,
+    open: TokenKind,
+    close: TokenKind,
+) -> Result<'a, Vec<Field<'a>>> {
+    let _ = lexer.expect_as(open)?;
+    let (fields, _) = list(
+        lexer,
+        |lexer| {
+            let name = lexer.expect_as(TokenKind::Ident)?;
+            let ty = ty(lexer)?;
+            Ok(Field { name, ty })
+        },
+        close,
+    )?;
+    Ok(fields)
 }
 
 fn ty<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Ty<'a>> {

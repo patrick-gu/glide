@@ -1,5 +1,5 @@
 func a() {
-    print("a")
+    println("a")
 }
 
 func main() {

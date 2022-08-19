@@ -8,5 +8,5 @@ func main() {
     } else {
         3
     }
-    printInt(x)
+    printlnInt(x)
 }

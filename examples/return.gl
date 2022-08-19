@@ -4,6 +4,16 @@ func returns_1() Int {
     2
 }
 
+func returns_2() Int {
+    if false {
+        return 1
+    } else {
+
+    }
+    2
+}
+
 func main() {
-    printInt(returns_1())
+    printlnInt(returns_1())
+    printlnInt(returns_2())
 }

@@ -9,12 +9,12 @@ func fibonacci(n Int) Int {
 }
 
 func main() {
-    printInt(fibonacci(0))
-    printInt(fibonacci(1))
-    printInt(fibonacci(2))
-    printInt(fibonacci(3))
-    printInt(fibonacci(4))
-    printInt(fibonacci(5))
-    printInt(fibonacci(6))
-    printInt(fibonacci(7))
+    printlnInt(fibonacci(0))
+    printlnInt(fibonacci(1))
+    printlnInt(fibonacci(2))
+    printlnInt(fibonacci(3))
+    printlnInt(fibonacci(4))
+    printlnInt(fibonacci(5))
+    printlnInt(fibonacci(6))
+    printlnInt(fibonacci(7))
 }

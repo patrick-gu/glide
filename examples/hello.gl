@@ -1,5 +1,5 @@
 // Prints "Hello World!" to the standard output with a newline
 
 func main() {
-    print("Hello World!")
+    println("Hello World!")
 }

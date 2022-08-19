@@ -21,7 +21,7 @@ Currently, this includes:
 
     ```
     func a() {
-        print("a")
+        println("a")
     }
 
     func main() {
@@ -62,7 +62,7 @@ Currently, this includes:
 
 ```
 func main() {
-    print("Hello World!")
+    println("Hello World!")
 }
 ```
 

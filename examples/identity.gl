@@ -7,9 +7,9 @@ func void() {}
 func main() {
     identity(void())
     identity(123)
-    print(identity(""))
-    print(identity(identity("zzz")))
+    println(identity(""))
+    println(identity(identity("zzz")))
     identity(void)
     identity(main)
-    identity(identity)(print)("t")
+    identity(identity)(println)("t")
 }

@@ -1,0 +1,10 @@
+pub use core:Void
+pub use core:Bool
+pub use core:Int
+pub use core:String
+pub use core:Slice
+pub use core:println
+pub use core:printlnInt
+pub use core:add
+pub use core:sub
+pub use core:eqInt

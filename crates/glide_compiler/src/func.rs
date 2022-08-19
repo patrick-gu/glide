@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 
-use crate::{ty::TyId, value::Value};
+use crate::{
+    registry::{Id, Registrable, Registry},
+    ty::TyId,
+    value::Value,
+};
 
 #[derive(Debug)]
 pub(crate) struct Func {
@@ -10,42 +14,21 @@ pub(crate) struct Func {
     pub(crate) body: FuncBody,
     pub(crate) cur_mono: bool,
 }
+impl Registrable for Func {}
+
+pub(crate) type FuncId = Id<Func>;
+
+pub(crate) type Funcs = Registry<Func>;
 
 #[derive(Clone, Debug)]
 pub(crate) enum FuncBody {
     Placeholder,
     Normal(Value),
-    Print,
-    PrintInt,
+    Println,
+    PrintlnInt,
     Add,
     Sub,
     EqInt,
-}
-
-#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
-pub(crate) struct FuncId(usize);
-
-#[derive(Debug)]
-pub(crate) struct Funcs(Vec<Func>);
-
-impl Funcs {
-    pub(crate) fn new() -> Self {
-        Self(Vec::new())
-    }
-
-    pub(crate) fn add(&mut self, func: Func) -> FuncId {
-        let id = FuncId(self.0.len());
-        self.0.push(func);
-        id
-    }
-
-    pub(crate) fn get(&self, id: FuncId) -> &Func {
-        &self.0[id.0]
-    }
-
-    pub(crate) fn get_mut(&mut self, id: FuncId) -> &mut Func {
-        &mut self.0[id.0]
-    }
 }
 
 #[derive(Clone, Debug)]

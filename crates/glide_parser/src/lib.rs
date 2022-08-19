@@ -1,11 +1,12 @@
 use std::result;
 
 use glide_ast::{
-    def::{AttributeDef, AttributeUsage, Def, DefKind, Field, Func, Struct},
+    def::{AttributeDef, AttributeUsage, Def, DefKind, Field, Func, Struct, Use, Visibility},
     expr::{Block, Call, Expr, If},
+    path::Path,
     stmt::{Stmt, VarDecl},
     ty::Ty,
-    Ast,
+    Package,
 };
 use glide_span::{source::Source, Span};
 
@@ -52,6 +53,7 @@ token_kinds!(
     Comma,
     Equal,
     Slash,
+    Colon,
 
     Ident,
     Integer,
@@ -65,9 +67,12 @@ token_kinds!(
     KwFunc => "func",
     KwIf => "if",
     KwLet => "let",
+    KwPub => "pub",
+    KwPriv => "priv",
     KwReturn => "return",
     KwStruct => "struct",
     KwTrue => "true",
+    KwUse => "use",
 );
 
 struct Lexer<'a> {
@@ -175,6 +180,7 @@ impl<'a> Lexer<'a> {
                 b'\'' => TokenKind::Apostrophe,
                 b',' => TokenKind::Comma,
                 b'=' => TokenKind::Equal,
+                b':' => TokenKind::Colon,
             );
         });
         Ok(())
@@ -211,7 +217,7 @@ pub enum Error<'a> {
 
 type Result<'a, T> = result::Result<T, Error<'a>>;
 
-pub fn parse(source: &Source) -> Result<'_, Ast<'_>> {
+pub fn parse(source: &Source) -> Result<'_, Package<'_>> {
     let mut lexer = Lexer {
         next: None,
         rem: Span::full(source),
@@ -220,17 +226,25 @@ pub fn parse(source: &Source) -> Result<'_, Ast<'_>> {
     while let Some(def) = def(&mut lexer)? {
         defs.push(def);
     }
-    Ok(Ast { defs })
+    Ok(Package { defs })
 }
 
 fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
     let mut attributes = Vec::new();
 
     while lexer.next_as(TokenKind::LBracket)?.is_some() {
-        let name = lexer.expect_as(TokenKind::Ident)?;
+        let path = path(lexer)?;
         let _ = lexer.expect_as(TokenKind::RBracket)?;
-        attributes.push(AttributeUsage { name });
+        attributes.push(AttributeUsage { path });
     }
+
+    let visibility = if lexer.next_as(TokenKind::KwPub)?.is_some() {
+        Visibility::Pub
+    } else if lexer.next_as(TokenKind::KwPriv)?.is_some() {
+        Visibility::Priv
+    } else {
+        Visibility::Unspecified
+    };
 
     if lexer.next_as(TokenKind::KwFunc)?.is_some() {
         let name = lexer.expect_as(TokenKind::Ident)?;
@@ -248,6 +262,7 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
 
         return Ok(Some(Def {
             attributes,
+            visibility,
             kind: DefKind::Func(Func {
                 name,
                 generics,
@@ -263,6 +278,7 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
 
         return Ok(Some(Def {
             attributes,
+            visibility,
             kind: DefKind::Attribute(AttributeDef { name }),
         }));
     }
@@ -274,11 +290,22 @@ fn def<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Option<Def<'a>>> {
 
         return Ok(Some(Def {
             attributes,
+            visibility,
             kind: DefKind::Struct(Struct {
                 name,
                 generics,
                 fields,
             }),
+        }));
+    }
+
+    if lexer.next_as(TokenKind::KwUse)?.is_some() {
+        let path = path(lexer)?;
+
+        return Ok(Some(Def {
+            attributes,
+            visibility,
+            kind: DefKind::Use(Use { path }),
         }));
     }
 
@@ -388,8 +415,8 @@ fn call<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
 }
 
 fn var_literal<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
-    if let Some(ident) = lexer.next_as(TokenKind::Ident)? {
-        return Ok(Expr::Var(ident));
+    if let Some(first) = lexer.next_as(TokenKind::Ident)? {
+        return Ok(Expr::Var(path_after_first(lexer, first)?));
     }
     if let Some(integer) = lexer.next_as(TokenKind::Integer)? {
         return Ok(Expr::Integer(integer));
@@ -440,6 +467,26 @@ fn var_literal<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Expr<'a>> {
         return Ok(Expr::String { data });
     }
     Err(lexer.unexpected_token())
+}
+
+fn path<'a>(lexer: &mut Lexer<'a>) -> Result<'a, Path<'a>> {
+    let first = lexer.expect_as(TokenKind::Ident)?;
+    path_after_first(lexer, first)
+}
+
+fn path_after_first<'a>(lexer: &mut Lexer<'a>, first: Span<'a>) -> Result<'a, Path<'a>> {
+    if lexer.next_as(TokenKind::Colon)?.is_some() {
+        let element = lexer.expect_as(TokenKind::Ident)?;
+        Ok(Path {
+            package: Some(first),
+            element,
+        })
+    } else {
+        Ok(Path {
+            package: None,
+            element: first,
+        })
+    }
 }
 
 fn list<'a, T>(

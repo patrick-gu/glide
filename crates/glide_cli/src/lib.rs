@@ -1,11 +1,10 @@
-use std::{env, fs};
+use std::{env, fs, path::Path};
 
 pub fn run() {
     let args: Vec<String> = env::args().collect();
     match &args[..] {
         [_, file] => {
-            let data = fs::read_to_string(file).unwrap();
-            glide::run_named(file.to_owned(), data);
+            glide::compile(Path::new(file));
         }
         [..] => {
             eprintln!("usage: glide_cli <file.gl>");

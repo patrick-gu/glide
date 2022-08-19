@@ -3,8 +3,8 @@ func bar(t String, u String) {
     let v = u
     let r = s
     let p = r
-    let x = stringConcat(stringConcat(r, p), v)
-    print(x)
+    print(p)
+    print(v)
 }
 
 func main() {

@@ -1,12 +1,12 @@
 use glide_span::Span;
 
-use crate::stmt::Stmt;
+use crate::{path::Path, stmt::Stmt};
 
 #[derive(Debug)]
 pub enum Expr<'a> {
     Integer(Span<'a>),
     String { data: Vec<u8> },
-    Var(Span<'a>),
+    Var(Path<'a>),
     Call(Call<'a>),
     If(If<'a>),
     True,

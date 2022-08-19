@@ -1,0 +1,53 @@
+// Definitions with built-in language support
+[Lang]
+attribute Lang
+
+// The void type
+[Lang]
+pub struct Void {
+}
+
+// The boolean type, either true or false
+[Lang]
+pub struct Bool {
+}
+
+// The 64-bit signed integer type
+[Lang]
+pub struct Int {
+}
+
+// The string type
+[Lang]
+pub struct String {
+}
+
+// The slice type
+[Lang]
+pub struct Slice<T> {
+}
+
+// Prints a string to the standard output with a newline
+[Lang]
+pub func println(s String) {
+}
+
+// Prints an integer to the standard output with a newline
+[Lang]
+pub func printlnInt(int Int) {
+}
+
+// Adds two integers
+[Lang]
+pub func add(lhs Int, rhs Int) Int {
+}
+
+// Subtracts the integer rhs from the integer lhs
+[Lang]
+pub func sub(lhs Int, rhs Int) Int {
+}
+
+// Returns true if the integers are equal and false if they are not equal
+[Lang]
+pub func eqInt(lhs Int, rhs Int) Bool {
+}

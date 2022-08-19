@@ -1,9 +1,6 @@
 use glide_span::Span;
 
-use crate::{
-    expr::{Block, Expr},
-    ty::Ty,
-};
+use crate::{expr::Expr, ty::Ty};
 
 #[derive(Debug)]
 pub enum Stmt<'a> {

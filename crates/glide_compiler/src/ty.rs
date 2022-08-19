@@ -1,6 +1,9 @@
-use std::{cmp::Ordering, collections::HashMap};
+use std::collections::HashMap;
 
-use crate::error::{Error, Result};
+use crate::{
+    error::{Error, Result},
+    registry::{Id, Registrable, Registry},
+};
 
 /// A type, consisting of a type constructor instantiated with type parameters.
 #[derive(Debug)]
@@ -22,54 +25,32 @@ pub(crate) enum Ty {
     Equal(TyId),
 }
 
+impl Registrable for Ty {
+    fn init(registry: &mut Registry<Self>) {
+        registry.add(Ty::Void);
+        registry.add(Ty::Int);
+        registry.add(Ty::Bool);
+        registry.add(Ty::String);
+    }
+}
+
 /// An identifier for a [`Ty`] in a [`Tys`].
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
-pub(crate) struct TyId(usize);
+pub(crate) type TyId = Id<Ty>;
 
 impl TyId {
-    pub(crate) const VOID: Self = Self(0);
-    pub(crate) const INT: Self = Self(1);
-    pub(crate) const BOOL: Self = Self(2);
-    pub(crate) const STRING: Self = Self(3);
-    pub(crate) const PLACEHOLDER: Self = Self(usize::MAX);
+    pub(crate) const VOID: Self = Self::manual(0);
+    pub(crate) const INT: Self = Self::manual(1);
+    pub(crate) const BOOL: Self = Self::manual(2);
+    pub(crate) const STRING: Self = Self::manual(3);
 }
 
 /// Contains [`Ty`]s and assigns [`TyId`]s.
-#[derive(Debug)]
-pub(crate) struct Tys(Vec<Ty>);
+pub(crate) type Tys = Registry<Ty>;
 
 impl Tys {
-    pub(crate) fn new() -> Self {
-        Self(vec![Ty::Void, Ty::Int, Ty::Bool, Ty::String])
-    }
-
-    pub(crate) fn add(&mut self, ty: Ty) -> TyId {
-        let id = TyId(self.0.len());
-        self.0.push(ty);
-        id
-    }
-
-    pub(crate) fn get(&self, id: TyId) -> &Ty {
-        &self.0[id.0]
-    }
-
-    fn get_mut_2(&mut self, TyId(a): TyId, TyId(b): TyId) -> (&mut Ty, &mut Ty) {
-        match a.cmp(&b) {
-            Ordering::Less => {
-                let (h, t) = self.0.split_at_mut(b);
-                (&mut h[a], &mut t[0])
-            }
-            Ordering::Equal => panic!(),
-            Ordering::Greater => {
-                let (h, t) = self.0.split_at_mut(a);
-                (&mut t[0], &mut h[b])
-            }
-        }
-    }
-
     /// Unifies two types, by trying to make them equal.
     pub(crate) fn unify(&mut self, l: TyId, r: TyId) -> Result<()> {
-        if l.0 == r.0 {
+        if l == r {
             return Ok(());
         }
         match self.get_mut_2(l, r) {

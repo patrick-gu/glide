@@ -26,12 +26,6 @@ func notHappyOrSad() {
 
 }
 
-[Happy]
-[Sad]
-struct HappyAndSad {
-
-}
-
 func main() {
 
 }

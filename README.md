@@ -48,11 +48,24 @@ Currently, this includes:
         3
     }
     ```
+
 -   Single-line comments
 
     ```
     // This is a comment
     ```
+
+-   [Attributes](./examples/attributes.gl)
+
+    ```
+    attribute Happy
+
+    [Happy]
+    func happy() {
+    }
+    ```
+
+-   Packages with `pub`lic and private visibility
 
 -   Native code generation using [LLVM](https://llvm.org)
 

@@ -1,0 +1,18 @@
+func not(b Bool) Bool {
+    if b {
+        false
+    } else {
+        true
+    }
+}
+
+func main() {
+    if not(false) {
+        println("ok")
+    } else {
+    }
+    if not(true) {
+    } else {
+        println("ok")
+    }
+}

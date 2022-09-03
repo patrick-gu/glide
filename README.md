@@ -97,16 +97,10 @@ func fibonacci(n Int) Int {
 
 First, install LLVM.
 
-Compile the CLI with
-
-```sh
-cargo b -p glide_cli --release
-```
-
-Then run the Hello World example with
+Run the Hello World example with
 
 ```
-./target/release/glide_cli ./examples/hello.gl > out.ll
-clang-14 out.ll -o out
-./out
+cargo r -- compile ./examples/hello.gl -o hello.o
+clang-14 -no-pie hello.o -o hello
+./hello
 ```

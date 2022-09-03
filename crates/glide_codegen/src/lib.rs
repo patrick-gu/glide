@@ -1,4 +1,11 @@
-use std::{ffi::CString, ptr};
+use std::{
+    ffi::CString,
+    fmt,
+    fs::{File, OpenOptions},
+    io::Write,
+    path::Path,
+    ptr,
+};
 
 use glide_codegen_llvm::llvm::{
     analysis::{LLVMVerifierFailureAction, LLVMVerifyModule},
@@ -8,19 +15,55 @@ use glide_codegen_llvm::llvm::{
         LLVMBuildGlobalStringPtr, LLVMBuildICmp, LLVMBuildPhi, LLVMBuildRet, LLVMBuildSub,
         LLVMBuildUnreachable, LLVMConstInt, LLVMConstStructInContext, LLVMContextCreate,
         LLVMContextDispose, LLVMCreateBasicBlockInContext, LLVMCreateBuilderInContext,
-        LLVMDisposeBuilder, LLVMDisposeMessage, LLVMDisposeModule, LLVMFunctionType,
-        LLVMGetElementType, LLVMGetInsertBlock, LLVMGetParam, LLVMGetReturnType,
-        LLVMInt1TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
+        LLVMCreatePassManager, LLVMDisposeBuilder, LLVMDisposeMemoryBuffer, LLVMDisposeMessage,
+        LLVMDisposeModule, LLVMFunctionType, LLVMGetBufferSize, LLVMGetBufferStart,
+        LLVMGetDataLayoutStr, LLVMGetElementType, LLVMGetInsertBlock, LLVMGetParam,
+        LLVMGetReturnType, LLVMInt1TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
         LLVMInt8TypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerType,
-        LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMSetLinkage, LLVMStructTypeInContext,
-        LLVMTypeOf,
+        LLVMPositionBuilderAtEnd, LLVMPrintModuleToString, LLVMSetDataLayout, LLVMSetLinkage,
+        LLVMSetTarget, LLVMStructTypeInContext, LLVMTypeOf, LLVMVoidTypeInContext,
     },
     prelude::{LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef, LLVMValueRef},
+    target::{
+        LLVMSetModuleDataLayout, LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters,
+        LLVM_InitializeAllTargetInfos, LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets,
+    },
+    target_machine::{
+        LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
+        LLVMCreateTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
+        LLVMTargetMachineEmitToFile, LLVMTargetMachineEmitToMemoryBuffer,
+    },
     LLVMIntPredicate, LLVMLinkage,
 };
 use glide_ir::{Func, FuncBody, Ir, Value};
 
-pub fn codegen(ir: &Ir) {
+#[derive(Copy, Clone)]
+pub enum TargetTriple {
+    X86_64UnknownLinuxGnu,
+}
+
+impl fmt::Display for TargetTriple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TargetTriple::X86_64UnknownLinuxGnu => write!(f, "x86_64-unknown-linux-gnu"),
+        }
+    }
+}
+
+impl fmt::Debug for TargetTriple {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self}")
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct CodegenOpts<'a> {
+    pub ir: &'a Ir,
+    pub target: TargetTriple,
+    pub output: &'a Path,
+}
+
+pub fn codegen(CodegenOpts { ir, target, output }: CodegenOpts) {
     unsafe {
         let ctx = LLVMContextCreate();
         let module =
@@ -34,10 +77,31 @@ pub fn codegen(ir: &Ir) {
             let llvm_func = LLVMAddFunction(module, name.as_ptr().cast(), ty);
             llvm_funcs.push(llvm_func);
         }
+
         let builder = LLVMCreateBuilderInContext(ctx);
         for (ir_func, &llvm_func) in ir.funcs.inner().iter().zip(llvm_funcs.iter()) {
             gen_func(ctx, module, builder, &llvm_funcs, llvm_func, ir_func);
         }
+
+        // {
+        //     let main = llvm_funcs[ir.main_func.inner()];
+        //     let ty = glide_ir::Ty::Func(Vec::new(), Box::new(glide_ir::Ty::Void));
+        //     let ty = LLVMGetElementType(gen_ty(ctx, &ty));
+        //     let start = LLVMAddFunction(module, "_start\0".as_ptr().cast(), ty);
+        //     let basic_block = LLVMAppendBasicBlock(start, b"entry\0".as_ptr().cast());
+        //     LLVMPositionBuilderAtEnd(builder, basic_block);
+        //     let mut args: [LLVMValueRef; 0] = [];
+        //     LLVMBuildCall2(
+        //         builder,
+        //         LLVMGetElementType(LLVMTypeOf(main)),
+        //         main,
+        //         (&mut args).as_mut_ptr().cast(),
+        //         0,
+        //         "call_main\0".as_ptr().cast(),
+        //     );
+        //     LLVMBuildRet(builder, empty_struct_value(ctx));
+        // }
+
         LLVMDisposeBuilder(builder);
 
         let mut msg = ptr::null_mut();
@@ -55,13 +119,62 @@ pub fn codegen(ir: &Ir) {
             panic!();
         }
 
-        {
-            let s = LLVMPrintModuleToString(module);
-            extern "C" {
-                fn puts(ptr: *const i8);
-            }
-            puts(s);
+        LLVM_InitializeAllTargetInfos();
+        LLVM_InitializeAllTargets();
+        LLVM_InitializeAllTargetMCs();
+        LLVM_InitializeAllAsmParsers();
+        LLVM_InitializeAllAsmPrinters();
+
+        let triple = target.to_string();
+        let triple = CString::new(triple).unwrap();
+
+        LLVMSetTarget(module, triple.as_ptr());
+
+        let mut t = ptr::null_mut();
+        let mut msg = ptr::null_mut();
+        if LLVMGetTargetFromTriple(triple.as_ptr(), &mut t, &mut msg) != 0 {
+            LLVMDisposeMessage(msg);
+            panic!();
         }
+        let machine = LLVMCreateTargetMachine(
+            t,
+            triple.as_ptr(),
+            "generic\0".as_ptr().cast(),
+            "\0".as_ptr().cast(),
+            LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
+            LLVMRelocMode::LLVMRelocDefault,
+            LLVMCodeModel::LLVMCodeModelDefault,
+        );
+        let data_layout = LLVMCreateTargetDataLayout(machine);
+        LLVMSetModuleDataLayout(module, data_layout);
+
+        let mut msg = ptr::null_mut();
+        let mut buf = ptr::null_mut();
+        if LLVMTargetMachineEmitToMemoryBuffer(
+            machine,
+            module,
+            LLVMCodeGenFileType::LLVMObjectFile,
+            &mut msg,
+            &mut buf,
+        ) != 0
+        {
+            LLVMDisposeMessage(msg);
+            panic!();
+        }
+
+        let start = LLVMGetBufferStart(buf).cast();
+        let len = LLVMGetBufferSize(buf);
+
+        let s = std::slice::from_raw_parts(start, len);
+
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(output)
+            .unwrap();
+        file.write_all(s).unwrap();
+
+        LLVMDisposeMemoryBuffer(buf);
 
         LLVMDisposeModule(module);
         LLVMContextDispose(ctx);
@@ -245,10 +358,9 @@ unsafe fn gen_value(
                 .iter()
                 .map(|v| gen_value(ctx, builder, llvm_funcs, llvm_func, locals, v))
                 .collect();
-            let return_type = LLVMGetReturnType(LLVMTypeOf(receiver));
             LLVMBuildCall2(
                 builder,
-                return_type,
+                LLVMGetElementType(LLVMTypeOf(receiver)),
                 receiver,
                 args.as_mut_ptr(),
                 args.len().try_into().unwrap(),

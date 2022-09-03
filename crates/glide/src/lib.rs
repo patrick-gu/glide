@@ -1,9 +1,12 @@
 #[cfg(not(target_pointer_width = "64"))]
 compile_error!("only works on 64 bit systems");
 
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
-use glide_codegen::codegen;
+use glide_codegen::{codegen, CodegenOpts};
 use glide_compiler::{Compilation, StandardAsts};
 use glide_parser::parse;
 use glide_span::source::Source;
@@ -36,13 +39,28 @@ fn compilation() -> Compilation {
     Compilation::new(&standard_asts)
 }
 
-pub fn compile(path: &Path) {
-    let data = fs::read_to_string(path).expect("failed to read source file");
+#[derive(Debug)]
+pub struct CompileOptions {
+    pub input: PathBuf,
+    pub output: PathBuf,
+    // opt_level: OptLevel,
+}
+
+// #[derive(Copy, Clone, Debug)]
+// pub enum OptLevel {
+//     O0,
+//     O1,
+//     O2,
+//     O3,
+// }
+
+pub fn compile(opts: &CompileOptions) {
+    let data = fs::read_to_string(&opts.input).expect("failed to read source file");
 
     let mut compilation = compilation();
 
     let source = Source {
-        name: path.to_string_lossy().into_owned(),
+        name: opts.input.to_string_lossy().into_owned(),
         data,
     };
 
@@ -52,5 +70,9 @@ pub fn compile(path: &Path) {
         .compile_binary("binary".to_owned(), &package)
         .unwrap();
 
-    codegen(&ir);
+    codegen(CodegenOpts {
+        ir: &ir,
+        target: glide_codegen::TargetTriple::X86_64UnknownLinuxGnu,
+        output: &opts.output,
+    });
 }

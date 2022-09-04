@@ -8,13 +8,14 @@ func fibonacci(n Int) Int {
     }
 }
 
+func fibonacciLoop(start Int, stop Int) {
+    if eqInt(start, stop) {
+    } else {
+        printlnInt(fibonacci(start))
+        fibonacciLoop(add(start, 1), stop)
+    }
+}
+
 func main() {
-    printlnInt(fibonacci(0))
-    printlnInt(fibonacci(1))
-    printlnInt(fibonacci(2))
-    printlnInt(fibonacci(3))
-    printlnInt(fibonacci(4))
-    printlnInt(fibonacci(5))
-    printlnInt(fibonacci(6))
-    printlnInt(fibonacci(7))
+    fibonacciLoop(0, 21)
 }
